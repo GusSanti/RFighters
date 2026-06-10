@@ -1,7 +1,6 @@
 local module = {}
 
 local QuestTemplates = require(script.Parent.QuestTemplates)
-local EnumTriggers = require(game.ReplicatedStorage.QuestAchievementsSystem.TriggersEnum)
 local PlayerState = require(game.ReplicatedStorage.PlayerState.PlayerStateServer)
 local ClaimQuest = game.ReplicatedStorage.QuestAchievementsSystem.Events.ClaimQuest
 
@@ -17,8 +16,280 @@ local function GetDayStamp()
 	return math.floor(os.time() / 86400)
 end
 
+local function CloneQuests(quests)
+	if typeof(quests) ~= "table" then
+		return nil
+	end
+
+	return PlayerState.Clone(quests, true)
+end
+
+local function GetQuestTemplate(questType, questIndex)
+	local bucket = QuestTemplates.QuestTemplates[questType]
+	if not bucket then
+		return nil
+	end
+
+	return bucket[questIndex]
+end
+
+local function BuildTriggerList(triggerMap)
+	local triggers = {}
+	local seen = {}
+
+	for _, trigger in pairs(triggerMap or {}) do
+		if type(trigger) == "string" and not seen[trigger] then
+			seen[trigger] = true
+			table.insert(triggers, trigger)
+		end
+	end
+
+	table.sort(triggers)
+
+	return triggers
+end
+
+local function AreTriggersEqual(currentTriggers, expectedTriggers)
+	if typeof(currentTriggers) ~= "table" then
+		return false
+	end
+
+	if #currentTriggers ~= #expectedTriggers then
+		return false
+	end
+
+	local current = table.clone(currentTriggers)
+	table.sort(current)
+
+	for index, trigger in ipairs(expectedTriggers) do
+		if current[index] ~= trigger then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function ExtractQuestTemplateValues(templateData, quest)
+	local tmpl = templateData.Template
+	local label = type(quest.Label) == "string" and quest.Label or templateData.Label
+
+	local requiredTriggers = tonumber(quest.RequiredTriggers)
+	if not requiredTriggers or requiredTriggers <= 0 then
+		requiredTriggers = tonumber(label:match("(%d+)"))
+	end
+
+	local mode = type(quest.Mode) == "string" and quest.Mode or nil
+
+	if tmpl.YOptions then
+		if not mode or not tmpl.TriggerMap[mode] then
+			for _, option in ipairs(tmpl.YOptions) do
+				if label:find(option, 1, true) then
+					mode = option
+					break
+				end
+			end
+		end
+
+		if (not mode or not tmpl.TriggerMap[mode]) and typeof(quest.Triggers) == "table" then
+			for option, trigger in pairs(tmpl.TriggerMap) do
+				if table.find(quest.Triggers, trigger) then
+					mode = option
+					break
+				end
+			end
+		end
+	else
+		mode = "any"
+	end
+
+	return requiredTriggers, mode, label
+end
+
+local function RepairQuestFromTemplate(questType, questIndex, quest)
+	local templateData = GetQuestTemplate(questType, questIndex)
+	if not templateData or typeof(quest) ~= "table" then
+		return false
+	end
+
+	local tmpl = templateData.Template
+	local changed = false
+	local requiredTriggers, mode, label = ExtractQuestTemplateValues(templateData, quest)
+	local expectedTriggers
+
+	if tmpl.YOptions then
+		if mode and tmpl.TriggerMap[mode] then
+			expectedTriggers = { tmpl.TriggerMap[mode] }
+		else
+			expectedTriggers = BuildTriggerList(tmpl.TriggerMap)
+		end
+	else
+		expectedTriggers = { tmpl.TriggerMap["any"] }
+	end
+
+	if requiredTriggers and requiredTriggers > 0 and quest.RequiredTriggers ~= requiredTriggers then
+		quest.RequiredTriggers = requiredTriggers
+		changed = true
+	end
+
+	if quest.Mode ~= mode then
+		quest.Mode = mode
+		changed = true
+	end
+
+	if quest.TemplateIndex ~= questIndex then
+		quest.TemplateIndex = questIndex
+		changed = true
+	end
+
+	if quest.QuestType ~= questType then
+		quest.QuestType = questType
+		changed = true
+	end
+
+	if quest.TemplateAction ~= tmpl.Action then
+		quest.TemplateAction = tmpl.Action
+		changed = true
+	end
+
+	if expectedTriggers and not AreTriggersEqual(quest.Triggers, expectedTriggers) then
+		quest.Triggers = expectedTriggers
+		changed = true
+	end
+
+	local expectedLabel = nil
+	if requiredTriggers and requiredTriggers > 0 then
+		expectedLabel = templateData.Label:gsub("{X}", tostring(requiredTriggers))
+		if tmpl.YOptions and mode then
+			expectedLabel = expectedLabel:gsub("{Y}", mode)
+		end
+	end
+
+	if type(quest.Label) ~= "string"
+		or quest.Label == ""
+		or quest.Label:find("{X}", 1, true)
+		or quest.Label:find("{Y}", 1, true)
+	then
+		quest.Label = expectedLabel or label
+		changed = true
+	end
+
+	local expectedIncrement = nil
+	if requiredTriggers and requiredTriggers > 0 then
+		expectedIncrement = requiredTriggers * tmpl.RewardPerUnit
+	end
+
+	if typeof(quest.Reward) ~= "table" then
+		quest.Reward = {}
+		changed = true
+	end
+
+	if quest.Reward.Type ~= templateData.Reward.Type then
+		quest.Reward.Type = templateData.Reward.Type
+		changed = true
+	end
+
+	if quest.Reward.StateKey ~= tmpl.RewardKey then
+		quest.Reward.StateKey = tmpl.RewardKey
+		changed = true
+	end
+
+	if expectedIncrement and quest.Reward.IncrementValue ~= expectedIncrement then
+		quest.Reward.IncrementValue = expectedIncrement
+		changed = true
+	end
+
+	return changed
+end
+
+local function NormalizeQuestState(quest)
+	local changed = false
+
+	local progress = tonumber(quest.Progress) or 0
+	if progress < 0 then
+		progress = 0
+	end
+	if quest.Progress ~= progress then
+		quest.Progress = progress
+		changed = true
+	end
+
+	local requiredTriggers = tonumber(quest.RequiredTriggers) or 0
+	if requiredTriggers < 0 then
+		requiredTriggers = 0
+	end
+	if quest.RequiredTriggers ~= requiredTriggers then
+		quest.RequiredTriggers = requiredTriggers
+		changed = true
+	end
+
+	local claimed = quest.Claimed == true
+	if quest.Claimed ~= claimed then
+		quest.Claimed = claimed
+		changed = true
+	end
+
+	local completed = quest.Completed == true or claimed or (requiredTriggers > 0 and progress >= requiredTriggers)
+	if quest.Completed ~= completed then
+		quest.Completed = completed
+		changed = true
+	end
+
+	return changed
+end
+
+local function NormalizeQuestBuckets(quests)
+	if typeof(quests) ~= "table" then
+		return false
+	end
+
+	local changed = false
+
+	for questType, bucket in pairs(quests) do
+		if bucket and bucket.Quests then
+			for questIndex, quest in ipairs(bucket.Quests) do
+				if RepairQuestFromTemplate(questType, questIndex, quest) then
+					changed = true
+				end
+
+				if NormalizeQuestState(quest) then
+					changed = true
+				end
+			end
+		end
+	end
+
+	return changed
+end
+
+local function FindQuestByIdentifier(quests, questTypeOrLabel, questIndex)
+	if type(questTypeOrLabel) == "string" and type(questIndex) == "number" then
+		local bucket = quests[questTypeOrLabel]
+		local quest = bucket and bucket.Quests and bucket.Quests[questIndex]
+		if quest then
+			return questTypeOrLabel, questIndex, quest
+		end
+	end
+
+	if type(questTypeOrLabel) ~= "string" then
+		return nil
+	end
+
+	for questType, bucket in pairs(quests) do
+		if bucket and bucket.Quests then
+			for index, quest in ipairs(bucket.Quests) do
+				if quest.Label == questTypeOrLabel then
+					return questType, index, quest
+				end
+			end
+		end
+	end
+
+	return nil
+end
+
 -- Gera uma quest de um template (preenche X, Y, Triggers, Reward)
-local function BuildQuestFromTemplate(templateData)
+local function BuildQuestFromTemplate(templateData, questType, questIndex)
 	-- Deep copy para não mutar o template original
 	local quest = {
 		Label = templateData.Label,
@@ -32,6 +303,8 @@ local function BuildQuestFromTemplate(templateData)
 		Progress = 0,
 		Completed = false,
 		Claimed = false,
+		TemplateIndex = questIndex,
+		QuestType = questType,
 	}
 
 	local tmpl = templateData.Template
@@ -47,6 +320,9 @@ local function BuildQuestFromTemplate(templateData)
 	else
 		quest.Triggers = { tmpl.TriggerMap["any"] }
 	end
+
+	quest.Mode = Y or "any"
+	quest.TemplateAction = tmpl.Action
 
 	quest.RequiredTriggers = X
 	quest.Reward.IncrementValue = X * tmpl.RewardPerUnit
@@ -66,7 +342,7 @@ local function GenerateQuestsByType(questType)
 	local generated = {}
 
 	for i, templateData in ipairs(templates) do
-		generated[i] = BuildQuestFromTemplate(templateData)
+		generated[i] = BuildQuestFromTemplate(templateData, questType, i)
 	end
 
 	return {
@@ -78,8 +354,17 @@ end
 
 -- Verifica e renova cada tipo de quest conforme a expiração
 local function RefreshQuests(plr)
-	local Quests = PlayerState.Get(plr, "Quests")
+	local currentQuests = PlayerState.Get(plr, "Quests")
+	if not currentQuests then
+		return
+	end
+
+	local Quests = CloneQuests(currentQuests)
 	local changed = false
+
+	if NormalizeQuestBuckets(Quests) then
+		changed = true
+	end
 
 	for questType, expiryDays in pairs(EXPIRY_DAYS) do
 		local bucket = Quests[questType]
@@ -144,10 +429,11 @@ end
 local SendTriggerQuestsEvent = game.ReplicatedStorage.QuestAchievementsSystem.Events.SendTriggerQuests
 
 SendTriggerQuestsEvent.Event:Connect(function(player, TriggerEnum, TriggerArgs)
-	local Quests = PlayerState.Get(player, "Quests")
-	if not Quests then warn('[QUESTS] SEM DADOS DE QUESTS PARA PLAYER') return end
+	local currentQuests = PlayerState.Get(player, "Quests")
+	if not currentQuests then warn('[QUESTS] SEM DADOS DE QUESTS PARA PLAYER') return end
 
-	local changed = false
+	local Quests = CloneQuests(currentQuests)
+	local changed = NormalizeQuestBuckets(Quests)
 
 	for questType, bucket in pairs(Quests) do
 		if not bucket or not bucket.Quests then continue end
@@ -172,50 +458,56 @@ SendTriggerQuestsEvent.Event:Connect(function(player, TriggerEnum, TriggerArgs)
 end)
 
 -- ─── ClaimQuest Handler ─────────────────────────────────────────────────────
-ClaimQuest.OnServerEvent:Connect(function(plr, questLabel)
-	if type(questLabel) ~= "string" then return end
+ClaimQuest.OnServerEvent:Connect(function(plr, questTypeOrLabel, questIndex)
+	if type(questTypeOrLabel) ~= "string" then return end
 
-	local Quests = PlayerState.Get(plr, "Quests")
-	if not Quests then return end
+	local currentQuests = PlayerState.Get(plr, "Quests")
+	if not currentQuests then return end
 
-	-- Procura a quest em todos os buckets (Daily/Weekly/Monthly)
-	for questType, bucket in pairs(Quests) do
-		if not bucket or not bucket.Quests then continue end
+	local Quests = CloneQuests(currentQuests)
+	local changed = NormalizeQuestBuckets(Quests)
 
-		for i, quest in ipairs(bucket.Quests) do
-			if quest.Label == questLabel then
-				-- Valida se está completa e ainda não foi reivindicada
-				if not quest.Completed then
-					warn(plr.Name .. " tentou reivindicar quest incompleta: " .. questLabel)
-					return
-				end
+	local questType, questPosition, quest = FindQuestByIdentifier(Quests, questTypeOrLabel, questIndex)
+	if not questType or not questPosition or not quest then
+		if changed then
+			PlayerState.Set(plr, "Quests", Quests)
+		end
 
-				if quest.Claimed then
-					warn(plr.Name .. " tentou reivindicar quest já reivindicada: " .. questLabel)
-					return
-				end
+		warn(plr.Name .. " tentou reivindicar quest inexistente: " .. tostring(questTypeOrLabel))
+		return
+	end
 
-				-- Aplica o reward
-				local reward = quest.Reward
-				if reward.Type == "PlayerStateIncrement" then
-					local current = PlayerState.Get(plr, reward.StateKey)
-					if type(current) == "number" then
-						PlayerState.Increment(plr, reward.StateKey, reward.IncrementValue)
-					end
-				end
+	if not quest.Completed then
+		if changed then
+			PlayerState.Set(plr, "Quests", Quests)
+		end
 
-				-- Marca como reivindicada
-				Quests[questType].Quests[i].Claimed = true
-				Quests[questType].Quests[i].Completed = true
-				PlayerState.Set(plr, "Quests", Quests)
+		warn(plr.Name .. " tentou reivindicar quest incompleta: " .. quest.Label)
+		return
+	end
 
-				print(plr.Name .. " reivindicou quest '" .. questLabel .. "' | Reward: +" .. tostring(reward.IncrementValue) .. " " .. tostring(reward.StateKey))
-				return
-			end
+	if quest.Claimed then
+		if changed then
+			PlayerState.Set(plr, "Quests", Quests)
+		end
+
+		warn(plr.Name .. " tentou reivindicar quest já reivindicada: " .. quest.Label)
+		return
+	end
+
+	local reward = quest.Reward
+	if reward.Type == "PlayerStateIncrement" then
+		local current = PlayerState.Get(plr, reward.StateKey)
+		if type(current) == "number" then
+			PlayerState.Increment(plr, reward.StateKey, reward.IncrementValue)
 		end
 	end
 
-	warn(plr.Name .. " tentou reivindicar quest inexistente: " .. questLabel)
+	Quests[questType].Quests[questPosition].Claimed = true
+	Quests[questType].Quests[questPosition].Completed = true
+	PlayerState.Set(plr, "Quests", Quests)
+
+	print(plr.Name .. " reivindicou quest '" .. quest.Label .. "' | Reward: +" .. tostring(reward.IncrementValue) .. " " .. tostring(reward.StateKey))
 end)
 
 return module

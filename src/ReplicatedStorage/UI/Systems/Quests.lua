@@ -24,6 +24,7 @@ local ASSET_CRYSTALS = "rbxassetid://124856269825747"
 local ASSET_DIAMONDS = "rbxassetid://91460785817697"
 
 local currentTab = nil
+local questsChangedConnection = nil
 
 local TAB_BUTTONS = {
 	DailyButton = DailyButton,
@@ -97,24 +98,30 @@ local function UpdateCompletionPercentage(card, ratio)
 	end
 end
 
+local function IsQuestCompleted(questData)
+	local progress = tonumber(questData.Progress) or 0
+	local required = tonumber(questData.RequiredTriggers) or 0
+
+	if questData.Completed == true then
+		return true
+	end
+
+	return required > 0 and progress >= required
+end
+
 local function CanClaimQuest(questData)
-	local completed = questData.Completed == true
+	local completed = IsQuestCompleted(questData)
 	local claimed = questData.Claimed == true
 	return completed and not claimed
 end
 
-local function GetQuestByLabel(quests, questLabel)
-	for _, bucket in pairs(quests) do
-		if bucket and bucket.Quests then
-			for _, questData in ipairs(bucket.Quests) do
-				if questData.Label == questLabel then
-					return questData
-				end
-			end
-		end
+local function GetQuestByLocation(quests, questType, questIndex)
+	local bucket = quests[questType]
+	if not bucket or not bucket.Quests then
+		return nil
 	end
 
-	return nil
+	return bucket.Quests[questIndex]
 end
 
 local function PopulateQuests(questType)
@@ -137,10 +144,12 @@ local function PopulateQuests(questType)
 		return
 	end
 
-	for _, questData in ipairs(bucket.Quests) do
+	for questIndex, questData in ipairs(bucket.Quests) do
 		local card = QuestTemplate:Clone()
 		card.Name = "QuestCard_" .. questData.Label
 		card.Visible = true
+		card:SetAttribute("QuestType", questType)
+		card:SetAttribute("QuestIndex", questIndex)
 
 		local questName = card:FindFirstChild("QuestName")
 		if questName then
@@ -161,7 +170,7 @@ local function PopulateQuests(questType)
 
 		local progress = questData.Progress or 0
 		local required = questData.RequiredTriggers or 0
-		local completed = questData.Completed == true
+		local completed = IsQuestCompleted(questData)
 
 		local ratio = 0
 		if required > 0 then
@@ -208,8 +217,37 @@ local function SwitchTab(action)
 	RefreshCurrentTab()
 end
 
+local function BindQuestsChangedListener()
+	if questsChangedConnection then
+		questsChangedConnection:Disconnect()
+		questsChangedConnection = nil
+	end
+
+	task.spawn(function()
+		local timeout = 0
+		while not PlayerState.IsReady() and timeout < 10 do
+			task.wait(0.1)
+			timeout += 0.1
+		end
+
+		if not PlayerState.IsReady() then
+			return
+		end
+
+		if questsChangedConnection then
+			return
+		end
+
+		questsChangedConnection = PlayerState.OnChanged("Quests", function()
+			task.defer(RefreshCurrentTab)
+		end)
+	end)
+end
+
 function Achievements.Init()
 	QuestTemplate.Visible = false
+
+	BindQuestsChangedListener()
 
 	for btnName, btn in pairs(TAB_BUTTONS) do
 		btn.MouseButton1Click:Connect(function()
@@ -240,12 +278,13 @@ function Achievements.ButtonAction(button: GuiButton, action: string)
 		return
 	end
 
-	local questName = card:FindFirstChild("QuestName")
-	if not questName then
+	local questType = card:GetAttribute("QuestType")
+	local questIndex = card:GetAttribute("QuestIndex")
+	if type(questType) ~= "string" or type(questIndex) ~= "number" then
 		return
 	end
 
-	local questData = GetQuestByLabel(Quests, questName.Text)
+	local questData = GetQuestByLocation(Quests, questType, questIndex)
 	if not questData then
 		return
 	end
@@ -254,7 +293,7 @@ function Achievements.ButtonAction(button: GuiButton, action: string)
 		return
 	end
 
-	ClaimQuestRemote:FireServer(questData.Label)
+	ClaimQuestRemote:FireServer(questType, questIndex)
 
 	button.Image = ASSET_CLAIM_GRAY
 	button.Active = false

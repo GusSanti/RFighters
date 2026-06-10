@@ -34,6 +34,7 @@ local StateManager          = require(game.ReplicatedStorage.StateManager.StateM
 local PlayerState           = require(game.ReplicatedStorage.PlayerState.PlayerStateServer)
 local MatchModule           = require(game.ReplicatedStorage.MatchSystem.MatchModule)
 local CombatKnockback       = require(game.ReplicatedStorage.CombatSystem.CombatKnockback)
+local UltimateCutsceneUtils = require(game.ServerStorage.SkillStorage.UltimateCutsceneUtils)
 local QuestAchievementsModule = require(game.ReplicatedStorage.QuestAchievementsSystem.QuestAchievementsTriggerModule)
 local QuestAchievementsEnum = require(game.ReplicatedStorage.QuestAchievementsSystem.TriggersEnum)
 
@@ -209,6 +210,7 @@ local function TeleportToArena(
 		AnchorCharacter(char)
 
 		local targetCFrame = arenaBounds:GetPivot() + offset
+		UltimateCutsceneUtils.StoreFightResetCFrame(char, targetCFrame)
 		char:PivotTo(targetCFrame)
 		task.wait(0.15)
 
@@ -569,16 +571,35 @@ local function GetRespawnCFrame(arenaBounds: Model): CFrame
 	return arenaBounds:GetPivot() + Vector3.new(0, 5, 0)
 end
 
+local function GetSafeArenaReturnCFrame(char: Model, arenaBounds: Model): CFrame
+	return UltimateCutsceneUtils.GetStoredFightCFrame(char, GetRespawnCFrame(arenaBounds))
+end
+
+local function ResetCharacterToArenaPoint(char: Model, arenaBounds: Model)
+	if not char or not char.Parent then return end
+
+	local safeCFrame = GetSafeArenaReturnCFrame(char, arenaBounds)
+	UltimateCutsceneUtils.StoreFightResetCFrame(char, safeCFrame)
+	AnchorCharacter(char)
+	UltimateCutsceneUtils.ClearTemporaryMovementControllers(char)
+	char:PivotTo(safeCFrame)
+	task.wait(0.05)
+
+	if char.Parent then
+		char:PivotTo(safeCFrame)
+		UltimateCutsceneUtils.ZeroCharacterVelocity(char)
+		UnanchorCharacter(char)
+		UltimateCutsceneUtils.ZeroCharacterVelocity(char)
+	end
+end
+
 local function PushBackToArena(player: Player, arenaBounds: Model)
 	local char = player and player.Character
 	if not char or not char.Parent then return end
 	local hrp = char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 	warn(string.format("[BoundsCheck] %s saiu dos limites — teleportando de volta.", player.Name))
-	AnchorCharacter(char)
-	char:PivotTo(GetRespawnCFrame(arenaBounds))
-	task.wait(0.05)
-	if char.Parent then UnanchorCharacter(char) end
+	ResetCharacterToArenaPoint(char, arenaBounds)
 end
 
 local function GetActiveFighters(arenaId: number): { Player }
@@ -830,8 +851,6 @@ local function CreateNvNDeathHandler(arenaId, team1, team2, teamChars, arenaBoun
 
 	local function TriggerMatchQuests(winner, map)
 		QuestAchievementsModule.Trigger(winner, QuestAchievementsEnum.EnumList.MatchWinMatch2v2)
-		QuestAchievementsModule.Trigger(winner, QuestAchievementsEnum.EnumList.MatchWinRound2v2)
-		QuestAchievementsModule.Trigger(winner, QuestAchievementsEnum.EnumList.CombatKillPlayer2v2)
 	end
 
 	local function HandleDeath(deadPlayer, deadTeam, enemyTeam, byTimeout: boolean?)
@@ -1141,10 +1160,7 @@ local function CreateArena(arenaId: number, MatchType: string, MatchArgs: { any 
 					local hrp = offlineBot:FindFirstChild("HumanoidRootPart")
 					if hrp and not IsInsideBounds(hrp.Position, newArena.Bounds) then
 						warn("[BoundsCheck] OfflineBot saiu dos limites — teleportando de volta.")
-						AnchorCharacter(offlineBot)
-						offlineBot:PivotTo(GetRespawnCFrame(newArena.Bounds))
-						task.wait(0.05)
-						if offlineBot.Parent then UnanchorCharacter(offlineBot) end
+						ResetCharacterToArenaPoint(offlineBot, newArena.Bounds)
 					end
 				end
 			end)
@@ -1317,9 +1333,7 @@ local function CreateArena(arenaId: number, MatchType: string, MatchArgs: { any 
 
 						if lives[loser] <= 0 then
 							KOPlayer(loser, winner)
-							QuestAchievementsModule.Trigger(winner, QuestAchievementsEnum.EnumList.MatchWinRound1v1, { Map = MatchArgs.Map })
 							QuestAchievementsModule.Trigger(winner, QuestAchievementsEnum.EnumList.MatchWinMatch1v1, { Map = MatchArgs.Map })
-							QuestAchievementsModule.Trigger(winner, QuestAchievementsEnum.EnumList.CombatKillPlayer1v1, { Map = MatchArgs.Map })
 							GiveCrystalReward(winner)
 							GiveDiamondsReward(winner)
 							GiveRollRewards(winner)

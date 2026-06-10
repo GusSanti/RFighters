@@ -23,8 +23,7 @@ local DamageIndicator   = require(ReplicatedStorage.Modules.Shared:WaitForChild(
 local knockback         = require(ServerStorage.FightModules.Knockback)
 local CombatBlock       = require(game.ReplicatedStorage.CombatSystem.CombatBlock)
 local DamageModule = require(game.ReplicatedStorage.CombatSystem.DamageModule)
-local CombatKnockback   = require(game.ReplicatedStorage.CombatSystem.CombatKnockback)
-local KnockbackProfiles = require(game.ServerStorage.CombatStorage.GlobalStorage.KnockbackProfiles)
+local UltimateCutsceneUtils = require(ServerStorage.SkillStorage.UltimateCutsceneUtils)
 
 local MatchModule		= require(game.ReplicatedStorage.MatchSystem.MatchModule)
 local MatchRemoteEvent  = game.ReplicatedStorage.Events.Match.MatchRemoteEvent
@@ -87,16 +86,15 @@ local function getTrack(animator, anim)
 end
 
 local function StoppingProcedure(player, enemyPlayer, char, enemyCharacter, hasDied, shouldKillAfter, _diedEvent, returnPosition, enemyReturnPosition, jointWeld, botLock, ServerEvents, humRP, enemyHumRP, humanoid, enemyHumanoid)
-	humRP.CFrame = returnPosition
-	task.wait(0.1)
-	destroyWeld(jointWeld)
+	local safeCharCFrame = UltimateCutsceneUtils.GetStoredFightCFrame(char, returnPosition)
+	local safeEnemyCFrame = UltimateCutsceneUtils.GetStoredFightCFrame(enemyCharacter, enemyReturnPosition)
+
+	UltimateCutsceneUtils.ResetCharactersToFightPositions(char, enemyCharacter, jointWeld, safeCharCFrame, safeEnemyCFrame)
 	if botLock then botLock.Value = true end
 	enemyHumRP.AssemblyLinearVelocity = Vector3.zero
 	enemyHumRP.AssemblyAngularVelocity = Vector3.zero
 	humRP.AssemblyLinearVelocity = Vector3.zero
 	humRP.AssemblyAngularVelocity = Vector3.zero
-
-	humRP.Anchored = false
 
 	-- Resto da limpeza...
 	ServerEvents:FireClient(player, "EnablePlayerLock")
@@ -113,10 +111,6 @@ local function StoppingProcedure(player, enemyPlayer, char, enemyCharacter, hasD
 		MatchRemoteEvent:FireClient(player, "FadeOut")
 	end
 
-	CombatKnockback.ApplyKnockback({
-		Profile = KnockbackProfiles.WakeUpBackKnockback
-	}, enemyCharacter)
-
 	StateManager.REMOVE(char, StateManagerEnums.STATES_ENUM.COMBAT_INSKILL)
 	StateManager.REMOVE(char, StateManagerEnums.STATES_ENUM.COMBAT_FULL_STUNNED)
 	StateManager.REMOVE(char, StateManagerEnums.STATES_ENUM.COMBAT_IFRAME)
@@ -126,8 +120,10 @@ local function StoppingProcedure(player, enemyPlayer, char, enemyCharacter, hasD
 	StateManager.REMOVE(enemyCharacter, StateManagerEnums.STATES_ENUM.COMBAT_BEING_ATTACKED)
 	StateManager.REMOVE(enemyCharacter, StateManagerEnums.STATES_ENUM.COMBAT_IFRAME)
 
-	_diedEvent:Disconnect()
-	_diedEvent = nil
+	if _diedEvent then
+		_diedEvent:Disconnect()
+		_diedEvent = nil
+	end
 
 	-- Mata o inimigo aqui, após a cutscene, se algum dano teria matado durante a skill
 	if shouldKillAfter and not hasDied then
@@ -176,10 +172,10 @@ function module.UseSkill(char: Model)
 			local enemyHumRP = enemyCharacter:FindFirstChild("HumanoidRootPart")
 			local enemyHumanoid = enemyCharacter:FindFirstChild("Humanoid")
 			local enemyAnimator = enemyHumanoid and enemyHumanoid.Animator
-			local returnPosition = char:GetPivot()
-			local enemyReturnPosition = enemyCharacter:GetPivot()
 
 			if not (enemyHumanoid and enemyHumRP) or enemyHumanoid.Health <= 0 then return end
+			local returnPosition = humRP.CFrame
+			local enemyReturnPosition = enemyHumRP.CFrame
 
 			local enemyPlayer = Players:GetPlayerFromCharacter(enemyCharacter)
 
@@ -266,6 +262,19 @@ function module.UseSkill(char: Model)
 			local hasDied = false
 			local shouldKillAfter = false
 			local _diedEvent 
+			local hasStopped = false
+
+			local function finishUltimate()
+				if hasStopped then
+					return
+				end
+
+				hasStopped = true
+				if Ability3EnemyTrack.IsPlaying then
+					Ability3EnemyTrack:Stop(0)
+				end
+				StoppingProcedure(player, enemyPlayer, char, enemyCharacter, hasDied, shouldKillAfter, _diedEvent, returnPosition, enemyReturnPosition, jointWeld, botLock, ServerEvents, humRP, enemyHumRP, humanoid, enemyHumanoid)
+			end
 
 			-- Aplica dano verificando a vida atual; se mataria, marca flag em vez de matar
 			local function applyDamageOrMark(amount)
@@ -290,7 +299,7 @@ function module.UseSkill(char: Model)
 						CutsceneCameraReplicate:FireClient(enemyPlayer, { Restore = true })
 					end
 
-					StoppingProcedure(player, enemyPlayer, char, enemyCharacter, hasDied, shouldKillAfter, _diedEvent, returnPosition, enemyReturnPosition, jointWeld, botLock, ServerEvents, humRP, enemyHumRP, humanoid, enemyHumanoid)
+					finishUltimate()
 				end
 			end)
 
@@ -306,7 +315,7 @@ function module.UseSkill(char: Model)
 			end)
 
 			Ability3Track.Stopped:Connect(function()
-				StoppingProcedure(player, enemyPlayer, char, enemyCharacter, hasDied, shouldKillAfter, _diedEvent, returnPosition, enemyReturnPosition, jointWeld, botLock, ServerEvents, humRP, enemyHumRP, humanoid, enemyHumanoid)
+				finishUltimate()
 			end)
 		end
 
