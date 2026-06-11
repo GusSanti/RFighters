@@ -14,6 +14,7 @@ local QuestTemplate = ScrollingFrame.QuestTemplate
 local DailyButton = AchievementsUI.MAIN.Daily
 local WeeklyButton = AchievementsUI.MAIN.Weekly
 local MonthlyButton = AchievementsUI.MAIN.Monthly
+local UpdateTimeLabel = AchievementsUI:WaitForChild("UpdateTime")
 local ClaimQuestRemote = game.ReplicatedStorage.QuestAchievementsSystem.Events.ClaimQuest
 
 local ASSET_GRAY_BUTTON = "rbxassetid://114921624481011"
@@ -22,9 +23,11 @@ local ASSET_CLAIM_NORMAL = "rbxassetid://71512746197648"
 local ASSET_CLAIM_GRAY = "rbxassetid://114921624481011"
 local ASSET_CRYSTALS = "rbxassetid://124856269825747"
 local ASSET_DIAMONDS = "rbxassetid://91460785817697"
+local SECONDS_PER_DAY = 86400
 
 local currentTab = nil
 local questsChangedConnection = nil
+local countdownLoopStarted = false
 
 local TAB_BUTTONS = {
 	DailyButton = DailyButton,
@@ -36,6 +39,12 @@ local TAB_TYPES = {
 	DailyButton = "Daily",
 	WeeklyButton = "Weekly",
 	MonthlyButton = "Monthly",
+}
+
+local TAB_EXPIRY_DAYS = {
+	Daily = 1,
+	Weekly = 7,
+	Monthly = 30,
 }
 
 local function SetTabVisual(button, selected)
@@ -122,6 +131,72 @@ local function GetQuestByLocation(quests, questType, questIndex)
 	end
 
 	return bucket.Quests[questIndex]
+end
+
+local function FormatRemainingTime(totalSeconds)
+	local safeSeconds = math.max(math.floor(totalSeconds), 0)
+	local days = math.floor(safeSeconds / SECONDS_PER_DAY)
+	local hours = math.floor((safeSeconds % SECONDS_PER_DAY) / 3600)
+	local minutes = math.floor((safeSeconds % 3600) / 60)
+	local seconds = safeSeconds % 60
+
+	if days > 0 then
+		return string.format("%02dd %02d:%02d:%02d", days, hours, minutes, seconds)
+	end
+
+	return string.format("%02d:%02d:%02d", hours, minutes, seconds)
+end
+
+local function GetResetTimestampForQuestType(questType)
+	local quests = PlayerState.Get("Quests")
+	local bucket = quests and quests[questType]
+	if not bucket then
+		return nil
+	end
+
+	local nextRefreshAt = tonumber(bucket.NextRefreshAt)
+	if nextRefreshAt then
+		return nextRefreshAt
+	end
+
+	local dayStamp = tonumber(bucket.DayStamp)
+	local expiryDays = TAB_EXPIRY_DAYS[questType]
+	if not dayStamp or not expiryDays then
+		return nil
+	end
+
+	return (dayStamp + expiryDays) * SECONDS_PER_DAY
+end
+
+local function RefreshUpdateTimeLabel()
+	local questType = currentTab and TAB_TYPES[currentTab]
+	if not questType then
+		UpdateTimeLabel.Text = "--:--:--"
+		return
+	end
+
+	local resetAt = GetResetTimestampForQuestType(questType)
+	if not resetAt then
+		UpdateTimeLabel.Text = "--:--:--"
+		return
+	end
+
+	UpdateTimeLabel.Text = FormatRemainingTime(resetAt - os.time())
+end
+
+local function StartCountdownLoop()
+	if countdownLoopStarted then
+		return
+	end
+
+	countdownLoopStarted = true
+
+	task.spawn(function()
+		while true do
+			RefreshUpdateTimeLabel()
+			task.wait(1)
+		end
+	end)
 end
 
 local function PopulateQuests(questType)
@@ -215,6 +290,7 @@ local function SwitchTab(action)
 	end
 
 	RefreshCurrentTab()
+	RefreshUpdateTimeLabel()
 end
 
 local function BindQuestsChangedListener()
@@ -239,15 +315,20 @@ local function BindQuestsChangedListener()
 		end
 
 		questsChangedConnection = PlayerState.OnChanged("Quests", function()
-			task.defer(RefreshCurrentTab)
+			task.defer(function()
+				RefreshCurrentTab()
+				RefreshUpdateTimeLabel()
+			end)
 		end)
 	end)
 end
 
 function Achievements.Init()
 	QuestTemplate.Visible = false
+	UpdateTimeLabel.Text = "--:--:--"
 
 	BindQuestsChangedListener()
+	StartCountdownLoop()
 
 	for btnName, btn in pairs(TAB_BUTTONS) do
 		btn.MouseButton1Click:Connect(function()
@@ -301,6 +382,7 @@ function Achievements.ButtonAction(button: GuiButton, action: string)
 
 	task.delay(0.25, function()
 		RefreshCurrentTab()
+		RefreshUpdateTimeLabel()
 	end)
 end
 

@@ -4,6 +4,9 @@ local QuestTemplates = require(script.Parent.QuestTemplates)
 local PlayerState = require(game.ReplicatedStorage.PlayerState.PlayerStateServer)
 local ClaimQuest = game.ReplicatedStorage.QuestAchievementsSystem.Events.ClaimQuest
 
+local SECONDS_PER_DAY = 86400
+local REFRESH_CHECK_INTERVAL = 5
+
 -- Expiração em dias por tipo
 local EXPIRY_DAYS = {
 	Daily   = 1,
@@ -13,7 +16,11 @@ local EXPIRY_DAYS = {
 
 -- Retorna timestamp atual em dias (os.time() / 86400 arredondado)
 local function GetDayStamp()	
-	return math.floor(os.time() / 86400)
+	return math.floor(os.time() / SECONDS_PER_DAY)
+end
+
+local function GetNextRefreshTimestamp(dayStamp, expiryDays)
+	return (dayStamp + expiryDays) * SECONDS_PER_DAY
 end
 
 local function CloneQuests(quests)
@@ -262,6 +269,45 @@ local function NormalizeQuestBuckets(quests)
 	return changed
 end
 
+local function NormalizeQuestBucketMetadata(questType, bucket)
+	if typeof(bucket) ~= "table" then
+		return false
+	end
+
+	local expiryDays = EXPIRY_DAYS[questType]
+	if not expiryDays then
+		return false
+	end
+
+	local changed = false
+
+	if bucket.QuestType ~= questType then
+		bucket.QuestType = questType
+		changed = true
+	end
+
+	local dayStamp = tonumber(bucket.DayStamp)
+	if not dayStamp then
+		local nextRefreshAt = tonumber(bucket.NextRefreshAt)
+		if nextRefreshAt then
+			dayStamp = math.max(math.floor(nextRefreshAt / SECONDS_PER_DAY) - expiryDays, 0)
+		else
+			dayStamp = GetDayStamp()
+		end
+
+		bucket.DayStamp = dayStamp
+		changed = true
+	end
+
+	local expectedNextRefreshAt = GetNextRefreshTimestamp(dayStamp, expiryDays)
+	if bucket.NextRefreshAt ~= expectedNextRefreshAt then
+		bucket.NextRefreshAt = expectedNextRefreshAt
+		changed = true
+	end
+
+	return changed
+end
+
 local function FindQuestByIdentifier(quests, questTypeOrLabel, questIndex)
 	if type(questTypeOrLabel) == "string" and type(questIndex) == "number" then
 		local bucket = quests[questTypeOrLabel]
@@ -340,6 +386,7 @@ end
 local function GenerateQuestsByType(questType)
 	local templates = QuestTemplates.QuestTemplates[questType]
 	local generated = {}
+	local dayStamp = GetDayStamp()
 
 	for i, templateData in ipairs(templates) do
 		generated[i] = BuildQuestFromTemplate(templateData, questType, i)
@@ -347,7 +394,8 @@ local function GenerateQuestsByType(questType)
 
 	return {
 		Quests    = generated,
-		DayStamp  = GetDayStamp(), -- dia em que foram geradas
+		DayStamp  = dayStamp, -- dia em que foram geradas
+		NextRefreshAt = GetNextRefreshTimestamp(dayStamp, EXPIRY_DAYS[questType]),
 		QuestType = questType,
 	}
 end
@@ -377,8 +425,12 @@ local function RefreshQuests(plr)
 		end
 
 		-- Checa se passaram dias suficientes desde a geração
-		local daysPassed = GetDayStamp() - (bucket.DayStamp or 0)
-		if daysPassed >= expiryDays then
+		if NormalizeQuestBucketMetadata(questType, bucket) then
+			changed = true
+		end
+
+		local nextRefreshAt = tonumber(bucket.NextRefreshAt) or GetNextRefreshTimestamp(bucket.DayStamp or GetDayStamp(), expiryDays)
+		if os.time() >= nextRefreshAt then
 			Quests[questType] = GenerateQuestsByType(questType)
 			changed = true
 		end
@@ -387,6 +439,11 @@ local function RefreshQuests(plr)
 	if changed then
 		PlayerState.Set(plr, "Quests", Quests)
 	end
+end
+
+local function EnsureFreshQuests(plr)
+	RefreshQuests(plr)
+	return PlayerState.Get(plr, "Quests")
 end
 
 -- Gera quests completas para player novo
@@ -426,10 +483,20 @@ for _, plr in pairs(game.Players:GetPlayers()) do
 end
 
 -- ─── Quest Trigger Handler ───────────────────────────────────────────────────
+task.spawn(function()
+	while true do
+		task.wait(REFRESH_CHECK_INTERVAL)
+
+		for _, plr in ipairs(game.Players:GetPlayers()) do
+			RefreshQuests(plr)
+		end
+	end
+end)
+
 local SendTriggerQuestsEvent = game.ReplicatedStorage.QuestAchievementsSystem.Events.SendTriggerQuests
 
 SendTriggerQuestsEvent.Event:Connect(function(player, TriggerEnum, TriggerArgs)
-	local currentQuests = PlayerState.Get(player, "Quests")
+	local currentQuests = EnsureFreshQuests(player)
 	if not currentQuests then warn('[QUESTS] SEM DADOS DE QUESTS PARA PLAYER') return end
 
 	local Quests = CloneQuests(currentQuests)
@@ -461,7 +528,7 @@ end)
 ClaimQuest.OnServerEvent:Connect(function(plr, questTypeOrLabel, questIndex)
 	if type(questTypeOrLabel) ~= "string" then return end
 
-	local currentQuests = PlayerState.Get(plr, "Quests")
+	local currentQuests = EnsureFreshQuests(plr)
 	if not currentQuests then return end
 
 	local Quests = CloneQuests(currentQuests)
