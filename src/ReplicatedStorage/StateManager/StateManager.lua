@@ -8,25 +8,46 @@ local STATE_ENUM = STATE_ENUM_MODULE.STATES_ENUM
 -- Pasta onde estão os remotes / bindables
 local Remotes = script.Parent.Remotes
 
--- Client (RemoteFunctions)
-local GET = Remotes:WaitForChild("GET")
-local POST = Remotes:WaitForChild("POST")
-local REMOVE = Remotes:WaitForChild("REMOVE")
+local IS_SERVER = RunService:IsServer()
+local WAIT_TIMEOUT = 15
 
--- Server (BindableFunctions)
-local GET_SV = Remotes:WaitForChild("GET_SV")
-local POST_SV = Remotes:WaitForChild("POST_SV")
-local REMOVE_SV = Remotes:WaitForChild("REMOVE_SV")
+-- Só esperamos os remotes do lado que realmente os usa, com timeout para
+-- não travar o boot caso a pasta/remote esteja ausente.
+local GET, POST, REMOVE
+local GET_SV, POST_SV, REMOVE_SV
+
+if IS_SERVER then
+	GET_SV = Remotes:WaitForChild("GET_SV", WAIT_TIMEOUT)
+	POST_SV = Remotes:WaitForChild("POST_SV", WAIT_TIMEOUT)
+	REMOVE_SV = Remotes:WaitForChild("REMOVE_SV", WAIT_TIMEOUT)
+else
+	GET = Remotes:WaitForChild("GET", WAIT_TIMEOUT)
+	POST = Remotes:WaitForChild("POST", WAIT_TIMEOUT)
+	REMOVE = Remotes:WaitForChild("REMOVE", WAIT_TIMEOUT)
+end
 
 -- API unificada:
 -- Client: InvokeServer(...)
 -- Server: Invoke(player, ...)
-local function Invoke(remoteClient: RemoteFunction, bindableServer: BindableFunction, player: Player?, ...)
-	if RunService:IsServer() then
+local function Invoke(remoteClient: RemoteFunction?, bindableServer: BindableFunction?, player: Player?, ...)
+	if IS_SERVER then
 		assert(player, "No Server é obrigatório passar o Player como primeiro argumento.")
+		assert(bindableServer, "[StateManager] BindableFunction do servidor ausente")
 		return bindableServer:Invoke(player, ...)
 	else
-		return remoteClient:InvokeServer(...)
+		if not remoteClient then
+			warn("[StateManager] RemoteFunction do cliente ausente")
+			return nil
+		end
+		local args = table.pack(...)
+		local ok, result = pcall(function()
+			return remoteClient:InvokeServer(table.unpack(args, 1, args.n))
+		end)
+		if not ok then
+			warn("[StateManager] InvokeServer falhou:", result)
+			return nil
+		end
+		return result
 	end
 end
 

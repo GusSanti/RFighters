@@ -11,6 +11,7 @@ local Task3 = AchievementsUI.MAIN.Task3
 local ClaimAchievement = game.ReplicatedStorage.QuestAchievementsSystem.Events.ClaimAchievement
 local CompletedTasks = AchievementsUI.MAIN.CompletedTasks
 local selectedMap = nil
+local RewardNotificationModule = require(game.ReplicatedStorage.Modules.RewardNotificationModule)
 
 -- ─── Utilitários ────────────────────────────────────────────────────────────
 
@@ -32,6 +33,33 @@ local function UpdateProgressBar(task, ratio)
 		local offsetX = -1 + ratio  -- mapeia [0,1] → [-1,0]
 		gradient.Offset = Vector2.new(offsetX, gradient.Offset.Y)
 	end
+end
+
+local function GetAchievementByAction(action)
+	if type(action) ~= "string" or not selectedMap then
+		return nil
+	end
+
+	local taskIndex = tonumber(action:match("^ClaimTask(%d+)$"))
+	if not taskIndex then
+		return nil
+	end
+
+	local playerAchievements = PlayerState.Get("Achievements")
+	local mapAchievements = playerAchievements and playerAchievements[selectedMap]
+	if not mapAchievements then
+		return nil
+	end
+
+	return mapAchievements[taskIndex]
+end
+
+local function CanClaimAchievement(achievement)
+	if not achievement or achievement.Completed == true then
+		return false
+	end
+
+	return (achievement.CurrentTriggers or 0) >= (achievement.RequiredTriggers or 0)
 end
 
 -- ─── Init ───────────────────────────────────────────────────────────────────
@@ -108,7 +136,17 @@ function Achievements.ButtonAction(button: GuiButton, action)
 		end
 	end
 
-	if action == 'ClaimTask1' or action == 'ClaimTask2' or action == 'ClaimTask3' and selectedMap then
+	if action == 'ClaimTask1' or action == 'ClaimTask2' or action == 'ClaimTask3' then
+		local achievement = GetAchievementByAction(action)
+		if not achievement then
+			return
+		end
+
+		if not CanClaimAchievement(achievement) then
+			RewardNotificationModule.ShowLockedReward("COMPLETE THIS OBJECTIVE BEFORE CLAIMING THE REWARD")
+			return
+		end
+
 		ClaimAchievement:FireServer(action, selectedMap)
 	end
 end

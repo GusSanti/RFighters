@@ -16,7 +16,18 @@ function MapSelectionModule.Init(mapSelUI, q1v1UI, q2v2UI, mapTable, imageTable)
 	MapImageTable     = imageTable
 end
 
+function MapSelectionModule.Cleanup()
+	MapSelectionUI.Main.Mode.Text = 'None'
+	for _, mapUI in MapSelectionUI.Main.ScrollingFrame:GetChildren() do
+		if mapUI:IsA("ImageButton") and mapUI.Name ~= 'MapTemplate' then
+			mapUI:Destroy()
+		end
+	end
+end
+
 function MapSelectionModule.Clone()
+	MapSelectionModule.Cleanup()
+	
 	for mapName in pairs(MapSelectionTable) do
 		local clone = MapSelectionUI.Main.ScrollingFrame.MapTemplate:Clone()
 		clone.Parent    = MapSelectionUI.Main.ScrollingFrame
@@ -27,15 +38,6 @@ function MapSelectionModule.Clone()
 	end
 	if LocalQueue1v1UI.Visible then Effects.ToggleUI(LocalQueue1v1UI) end
 	if LocalQueue2v2UI.Visible then Effects.ToggleUI(LocalQueue2v2UI) end
-end
-
-function MapSelectionModule.Cleanup()
-	MapSelectionUI.Main.Mode.Text = 'None'
-	for _, mapUI in MapSelectionUI.Main.ScrollingFrame:GetChildren() do
-		if mapUI:IsA("ImageButton") and mapUI.Name ~= 'MapTemplate' then
-			mapUI:Destroy()
-		end
-	end
 end
 
 function MapSelectionModule.SetMode(mode)

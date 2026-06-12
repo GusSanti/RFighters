@@ -262,7 +262,15 @@ local function handleRollRequest(player: Player): { success: boolean, character:
 	cooldowns[userId] = tick()
 	PlayerState.Set(player, "Rolls", currentRolls - CONFIG.ROLLS_PER_USE)
 
-	local pity: { [string]: number } = PlayerState.Get(player, "PityCounters") or { Rare = 0, Epic = 0, Legendary = 0 }
+	-- Copy into a fresh table. PlayerState.Get returns the live replica reference
+	-- (AutoCloneTables = false), so mutating it in place makes PlayerState.Set's
+	-- `oldValue == value` guard short-circuit and the new pity never replicates.
+	local storedPity = PlayerState.Get(player, "PityCounters")
+	local pity: { [string]: number } = {
+		Rare      = (storedPity and storedPity.Rare) or 0,
+		Epic      = (storedPity and storedPity.Epic) or 0,
+		Legendary = (storedPity and storedPity.Legendary) or 0,
+	}
 
 	local forcedRarity = getPityForcedRarity(pity)
 

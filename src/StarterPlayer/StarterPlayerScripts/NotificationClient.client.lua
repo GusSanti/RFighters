@@ -8,12 +8,26 @@ local Players = game:GetService("Players")
 local PartyRemote = game.ReplicatedStorage.Events:WaitForChild("Party"):WaitForChild("PartyRemoteEvent")
 
 local playerGui                    = Players.LocalPlayer:WaitForChild("PlayerGui")
-local MainUI                       = playerGui:WaitForChild("UI")
-local NotificationUI               = MainUI:WaitForChild("Notification")
-local NotificationScrollingFrame   = NotificationUI:WaitForChild("ScrollingFrame")
-local NotificationTeamTemplate     = NotificationScrollingFrame:WaitForChild("Invite2v2Template")
-local NotificationFightTemplate    = NotificationScrollingFrame:WaitForChild("InviteFightTemplate")
-local NotificationMessageTemplate  = NotificationScrollingFrame:WaitForChild("MessageTemplate")
+local MainUI                       = playerGui:WaitForChild("UI", 60)
+if not MainUI then
+	warn("[NotificationClient] PlayerGui.UI not found; notifications disabled")
+	return
+end
+
+local NotificationUI               = MainUI:WaitForChild("Notification", 15)
+if not NotificationUI then
+	warn("[NotificationClient] UI.Notification not found; notifications disabled")
+	return
+end
+
+local NotificationScrollingFrame   = NotificationUI:WaitForChild("ScrollingFrame", 15)
+local NotificationTeamTemplate     = NotificationScrollingFrame and NotificationScrollingFrame:WaitForChild("Invite2v2Template", 10)
+local NotificationFightTemplate    = NotificationScrollingFrame and NotificationScrollingFrame:WaitForChild("InviteFightTemplate", 10)
+local NotificationMessageTemplate  = NotificationScrollingFrame and NotificationScrollingFrame:WaitForChild("MessageTemplate", 10)
+if not NotificationScrollingFrame or not NotificationTeamTemplate or not NotificationFightTemplate or not NotificationMessageTemplate then
+	warn("[NotificationClient] Notification templates missing; notifications disabled")
+	return
+end
 local Notification2v2FightTemplate = NotificationScrollingFrame:FindFirstChild("Invite2v2FightTemplate")
 
 -- Template dedicado de convite de party.
@@ -90,6 +104,7 @@ local function clone2v2FightNotificationTemplate(Player1, Player2)
 end
 
 local function cloneMessageNotificationTemplate(message)
+	NotificationUI.Visible = true  -- <-- adiciona essa linha
 	local newTemplate = NotificationMessageTemplate:Clone()
 	newTemplate.Parent = NotificationScrollingFrame
 	newTemplate.Label.Text = message

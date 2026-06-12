@@ -203,12 +203,12 @@ function module.UseSkill(char: Model)
 			StateManager.POST(enemyCharacter, StateManagerEnums.STATES_ENUM.COMBAT_BEING_ATTACKED)
 			humanoid.AutoRotate = false
 			enemyHumanoid.AutoRotate = false
-			
+
 			local Ability3Anim  = Animations:FindFirstChild("Ability3")
 			local Ability3Track = animator:LoadAnimation(Ability3Anim)
 			Ability3Track:Play()
 			Ability3Track:AdjustSpeed(1.5)
-		
+
 			local sfx = Sounds:FindFirstChild("Ability3Sound"):Clone()
 			sfx.Parent = char.Torso
 			sfx:Play()
@@ -218,7 +218,7 @@ function module.UseSkill(char: Model)
 			local Ability3EnemyTrack = enemyAnimator:LoadAnimation(Ability3EnemyAnim)
 			Ability3EnemyTrack:Play()
 			Ability3EnemyTrack:AdjustSpeed(1.5)
-			
+
 			local ULTIMATE_DURATION = 13
 			MatchModule.PauseMatchTimer(player, ULTIMATE_DURATION)
 
@@ -257,7 +257,7 @@ function module.UseSkill(char: Model)
 			local botLock = enemyCharacter:FindFirstChild("LockToggle")
 			if botLock then botLock.Value = false end
 			local jointWeld = weld(humRP, enemyHumRP, CFrame.new(0, 0, 0), humRP)
-			
+
 			Assets.Events.Replicate:FireAllClients("TomTheTitanSharkUltimate", {Char = char, Enemy = enemyCharacter})
 
 			local hasDied        = false
@@ -287,11 +287,11 @@ function module.UseSkill(char: Model)
 					DamageIndicator(enemyCharacter, amount, Color3.new(1, 0, 0))
 				end
 			end
-			
+
 			task.delay(5.12,function()
 				applyDamageOrMark(Damage)
 			end)
-			
+
 			task.delay(9.5,function()
 				applyDamageOrMark(FinalDamage)
 			end)

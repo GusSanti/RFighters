@@ -212,4 +212,46 @@ function FightingHUD.UpdateAbilityUI(Key, Time)
 	end)
 end
 
+local function setActionStateColor(frame, locked)
+	if not frame then return end
+	local cooldown = frame:FindFirstChild("Cooldown")
+	local inCooldown = cooldown and cooldown.Visible
+	local color = inCooldown and COOLDOWN_COLOR or (locked and Color3.fromRGB(115, 115, 115) or DEFAULT_COLOR)
+	local ability = frame:FindFirstChild("Ability")
+	local bind = frame:FindFirstChild("Bind")
+	local function tint(instance)
+		if instance and (instance:IsA("ImageLabel") or instance:IsA("ImageButton")) then
+			instance.ImageColor3 = color
+		end
+	end
+	tint(ability)
+	tint(ability and ability:FindFirstChild("BAR"))
+	tint(bind)
+	tint(bind and bind:FindFirstChild("BAR"))
+end
+
+function FightingHUD.SetActionStates(states)
+	if not states or not AbilityFrames then return end
+	setActionStateColor(AbilityFrames.Skill1, states.SKILL1 == false)
+	setActionStateColor(AbilityFrames.Skill2, states.SKILL2 == false)
+	setActionStateColor(AbilityFrames.Ultimate, states.ULTIMATE == false)
+end
+
+function FightingHUD.PulseAbility(Key)
+	local f = AbilityFrames and AbilityFrames[Key]
+	if f then
+		shakeGui(f, 0.12, 5)
+	end
+end
+
+function FightingHUD.PulseStaminaDenied()
+	if not FightingFrame then return end
+	local top = FightingFrame:FindFirstChild("Top")
+	local player1 = top and top:FindFirstChild("Player1")
+	local staminaBar = player1 and player1:FindFirstChild("StaminaBar")
+	if staminaBar then
+		shakeGui(staminaBar, 0.18, 8)
+	end
+end
+
 return FightingHUD

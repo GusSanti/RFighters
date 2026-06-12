@@ -103,10 +103,16 @@ UpdateLeaderBoard.OnClientEvent:Connect(function(data: {[string]: {any}})
 	end
 end)
 
--- Retry: fica pedindo a cada 3 segundos até receber dados válidos
+-- Retry: pede a cada 3 segundos até receber dados válidos, com teto de tentativas
 task.spawn(function()
-	while not receivedData do
+	local attempts = 0
+	local MAX_ATTEMPTS = 20
+	while not receivedData and attempts < MAX_ATTEMPTS do
 		RequestLeaderboard:FireServer()
+		attempts += 1
 		task.wait(3)
+	end
+	if not receivedData then
+		warn("[LeaderboardClient] Sem resposta do servidor após", MAX_ATTEMPTS, "tentativas")
 	end
 end)

@@ -17,6 +17,11 @@ if not humanoid then
 	humanoid = character:WaitForChild('Humanoid', 15)
 end
 
+if not humanoid then
+	warn("[Init] Humanoid ausente após CharacterAdded, abortando init do CombatClient")
+	return
+end
+
 local animator = humanoid:WaitForChild('Animator', 10)
 local humrp = character:WaitForChild('HumanoidRootPart', 15)
 
@@ -27,15 +32,29 @@ if not humrp then
 	humrp = character:WaitForChild('HumanoidRootPart', 10)
 end
 
+if not humrp then
+	warn("[Init] HumanoidRootPart ausente, abortando init do CombatClient")
+	return
+end
+
 local StateManager = require(game.ReplicatedStorage.StateManager.StateManager)
 local StateEnum = require(game.ReplicatedStorage.StateManager.ENUM)
 local CameraModule = require(game.ReplicatedStorage.Modules.CameraModule)
 local InputManager = require(game.ReplicatedStorage.Modules.InputManager)
 local CombatClient = require(game.ReplicatedStorage.CombatSystem.CombatClient)
+local FightingHUD = require(game.ReplicatedStorage.UI.Systems.LocalQueue.FightingHUD)
 local PlayerModule = require(localPlayer:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
 local EffectsReplicator = require(game.ReplicatedStorage.CombatSystem.EffectsReplicatorClient)
 local EffectsHelper = require(game.ReplicatedStorage.CombatSystem.EffectsHelper)
 local CombatUtils = require(game.ReplicatedStorage.CombatSystem.CombatUtils)
+
+local DEBUG_COMBAT_CLIENT = false
+
+local function debugWarn(...)
+	if DEBUG_COMBAT_CLIENT then
+		warn(...)
+	end
+end
 
 local CombatRequests = game.ReplicatedStorage.CombatSystem.Events.ClientRequests
 local PlayAnimationEvent = game.ReplicatedStorage.CombatSystem.Events.PlayAnimation
@@ -45,11 +64,26 @@ local TutorialComplete = game.ReplicatedStorage.Events:WaitForChild("TutorialCom
 local CharacterSwapEvent = game.ReplicatedStorage.Events:WaitForChild("CharacterSwapped", 10)
 
 local playerGui = localPlayer:WaitForChild("PlayerGui")
-local MainUI = playerGui:WaitForChild("UI")
-local FightingFrame = MainUI:WaitForChild('FightingFrame')
-local MobileUI = FightingFrame:WaitForChild('MobileUI')
+local MainUI = playerGui:WaitForChild("UI", 60)
+if not MainUI then
+	warn("[CombatClient] PlayerGui.UI not found; combat UI disabled")
+	return
+end
+
+local FightingFrame = MainUI:WaitForChild("FightingFrame", 15)
+if not FightingFrame then
+	warn("[CombatClient] UI.FightingFrame not found; combat UI disabled")
+	return
+end
+
+local MobileUI = FightingFrame:WaitForChild("MobileUI", 15)
+if not MobileUI then
+	warn("[CombatClient] FightingFrame.MobileUI not found; mobile combat UI disabled")
+	return
+end
 
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
 
@@ -80,14 +114,94 @@ local Camera = workspace.CurrentCamera
 -- ─────────────────────────────────────────────────────────────
 local IsMobile = UIS.TouchEnabled
 local mobileButtons = {}
+local mobileButtonOriginals = {}
+local currentActionStates = {}
+local StateCache
+
+local UNAVAILABLE_BUTTON_COLOR = Color3.fromRGB(120, 120, 120)
+local UNAVAILABLE_TEXT_COLOR = Color3.fromRGB(190, 190, 190)
+
+local ACTION_TO_ABILITY_KEY = {
+	SKILL1 = "Skill1",
+	SKILL2 = "Skill2",
+	ULTIMATE = "Ultimate",
+}
+
+local function rememberMobileButtonOriginals(button)
+	if mobileButtonOriginals[button] then return end
+
+	local label = button:FindFirstChildOfClass("TextLabel")
+	mobileButtonOriginals[button] = {
+		ImageColor3 = button.ImageColor3,
+		ImageTransparency = button.ImageTransparency,
+		TextColor3 = label and label.TextColor3 or nil,
+		Size = button.Size,
+	}
+end
+
+local function applyMobileButtonState(button)
+	rememberMobileButtonOriginals(button)
+	local original = mobileButtonOriginals[button]
+	local canUse = currentActionStates[button.Name]
+
+	if canUse == nil or canUse == true then
+		button.ImageColor3 = original.ImageColor3
+		button.ImageTransparency = original.ImageTransparency
+	else
+		button.ImageColor3 = UNAVAILABLE_BUTTON_COLOR
+		button.ImageTransparency = math.max(original.ImageTransparency, 0.25)
+	end
+
+	local label = button:FindFirstChildOfClass("TextLabel")
+	if label and original.TextColor3 then
+		label.TextColor3 = (canUse == nil or canUse == true) and original.TextColor3 or UNAVAILABLE_TEXT_COLOR
+	end
+end
+
+local function applyMobileActionStates()
+	for _, button in mobileButtons do
+		applyMobileButtonState(button)
+	end
+end
+
+local function pulseMobileButton(action)
+	local button = MobileUI:FindFirstChild(action)
+	if not button or not button:IsA("GuiButton") then return end
+	rememberMobileButtonOriginals(button)
+
+	local original = mobileButtonOriginals[button]
+	local shrinkSize = UDim2.new(
+		original.Size.X.Scale * 0.92,
+		original.Size.X.Offset,
+		original.Size.Y.Scale * 0.92,
+		original.Size.Y.Offset
+	)
+
+	TweenService:Create(button, TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = shrinkSize,
+	}):Play()
+	task.delay(0.06, function()
+		if button.Parent then
+			TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Size = original.Size,
+			}):Play()
+		end
+	end)
+end
+
+local function shouldSuppressLocalInput()
+	return StateCache[ENUM_FULL_STUNNED] or StateCache[ENUM_COUNTDOWN_STUN]
+end
 
 local function rebuildMobileButtonCache()
 	mobileButtons = {}
 	for _, b in MobileUI:GetChildren() do
 		if b:IsA("ImageButton") then
+			rememberMobileButtonOriginals(b)
 			table.insert(mobileButtons, b)
 		end
 	end
+	applyMobileActionStates()
 end
 rebuildMobileButtonCache()
 
@@ -101,10 +215,13 @@ local cameraConnection
 local inputBeganConnection
 local inputEndedConnection
 local moveConnection
+local touchTrackConnection
+local touchBeganConnection
+local touchEndedConnection
 local landingConnection = nil -- FIX: rastreia conexão para evitar leak
 
 local activeTracks = {}
-local StateCache = StateManager.GET()
+StateCache = StateManager.GET()
 
 local characterVisuals = nil
 local playerLockingEnabled = false
@@ -176,11 +293,75 @@ local tutorialWaitingFor = nil
 local tutorialGui = nil
 local tutorialLabel = nil
 local tutorialFrame = nil
+local tutorialFadeGui = nil
+local tutorialFadeFrame = nil
 
 local function setTutorialVisible(visible)
 	if tutorialFrame then
 		tutorialFrame.Visible = visible
 	end
+end
+
+local function getTutorialFadeFrame()
+	if tutorialFadeFrame then
+		return tutorialFadeFrame
+	end
+
+	tutorialFadeGui = Instance.new("ScreenGui")
+	tutorialFadeGui.Name = "TutorialCleanTeleportFade"
+	tutorialFadeGui.ResetOnSpawn = false
+	tutorialFadeGui.IgnoreGuiInset = true
+	tutorialFadeGui.DisplayOrder = 1000
+	tutorialFadeGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	tutorialFadeGui.Parent = playerGui
+
+	local frame = Instance.new("Frame")
+	frame.Name = "Black"
+	frame.Size = UDim2.fromScale(1, 1)
+	frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Visible = false
+	frame.Parent = tutorialFadeGui
+
+	tutorialFadeFrame = frame
+	return tutorialFadeFrame
+end
+
+local function fadeTutorialTeleportIn()
+	local frame = getTutorialFadeFrame()
+	frame.BackgroundTransparency = 1
+	frame.Visible = true
+
+	local tween = TweenService:Create(
+		frame,
+		TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ BackgroundTransparency = 0 }
+	)
+	tween:Play()
+	tween.Completed:Wait()
+end
+
+local function fadeTutorialTeleportOut()
+	if not tutorialFadeFrame then return end
+
+	local frame = tutorialFadeFrame
+	frame.Visible = true
+	frame.BackgroundTransparency = 0
+
+	local tween = TweenService:Create(
+		frame,
+		TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ BackgroundTransparency = 1 }
+	)
+	tween:Play()
+	tween.Completed:Once(function()
+		if tutorialFadeGui then
+			tutorialFadeGui:Destroy()
+			tutorialFadeGui = nil
+			tutorialFadeFrame = nil
+		end
+	end)
 end
 
 local function onTutorialInput(action)
@@ -201,32 +382,107 @@ local function showTutorialText(text)
 		tutorialGui = Instance.new("ScreenGui")
 		tutorialGui.Name = "TutorialGui"
 		tutorialGui.ResetOnSpawn = false
+		tutorialGui.IgnoreGuiInset = true
+		tutorialGui.DisplayOrder = 80
+		tutorialGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 		tutorialGui.Parent = playerGui
+
+		local container = Instance.new("Frame")
+		container.Name = "TutorialPanel"
+		container.Size = UDim2.new(0.62, 0, 0, 86)
+		container.Position = UDim2.new(0.19, 0, 0.12, 0)
+		container.BackgroundTransparency = 1
+		container.BorderSizePixel = 0
+		container.Parent = tutorialGui
+
+		local shadow = Instance.new("Frame")
+		shadow.Name = "Shadow"
+		shadow.Size = UDim2.new(1, 12, 1, 12)
+		shadow.Position = UDim2.new(0, 6, 0, 8)
+		shadow.BackgroundColor3 = Color3.fromRGB(5, 7, 15)
+		shadow.BackgroundTransparency = 0.38
+		shadow.BorderSizePixel = 0
+		shadow.ZIndex = 1
+		shadow.Parent = container
+
+		local shadowCorner = Instance.new("UICorner")
+		shadowCorner.CornerRadius = UDim.new(0, 18)
+		shadowCorner.Parent = shadow
 
 		local frame = Instance.new("Frame")
 		frame.Name = "Frame"
-		frame.Size = UDim2.new(0.6, 0, 0, 65)
-		frame.Position = UDim2.new(0.2, 0, 0.07, 0)
-		frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-		frame.BackgroundTransparency = 0.35
+		frame.Size = UDim2.new(1, 0, 1, 0)
+		frame.BackgroundColor3 = Color3.fromRGB(17, 23, 46)
+		frame.BackgroundTransparency = 0.04
 		frame.BorderSizePixel = 0
-		frame.Parent = tutorialGui
+		frame.ZIndex = 2
+		frame.Parent = container
 
 		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 12)
+		corner.CornerRadius = UDim.new(0, 18)
 		corner.Parent = frame
 
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(36, 47, 88)),
+			ColorSequenceKeypoint.new(0.55, Color3.fromRGB(16, 24, 55)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(41, 16, 52)),
+		})
+		gradient.Rotation = 12
+		gradient.Parent = frame
+
+		local border = Instance.new("UIStroke")
+		border.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		border.Color = Color3.fromRGB(255, 205, 79)
+		border.LineJoinMode = Enum.LineJoinMode.Round
+		border.Thickness = 2
+		border.Transparency = 0.08
+		border.Parent = frame
+
+		local accent = Instance.new("Frame")
+		accent.Name = "Accent"
+		accent.Size = UDim2.new(0, 9, 1, -18)
+		accent.Position = UDim2.new(0, 12, 0, 9)
+		accent.BackgroundColor3 = Color3.fromRGB(255, 204, 58)
+		accent.BorderSizePixel = 0
+		accent.ZIndex = 3
+		accent.Parent = frame
+
+		local accentCorner = Instance.new("UICorner")
+		accentCorner.CornerRadius = UDim.new(1, 0)
+		accentCorner.Parent = accent
+
+		local accentGradient = Instance.new("UIGradient")
+		accentGradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 98)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 91, 91)),
+		})
+		accentGradient.Rotation = 90
+		accentGradient.Parent = accent
+
 		local label = Instance.new("TextLabel")
-		label.Size = UDim2.new(1, -24, 1, 0)
-		label.Position = UDim2.new(0, 12, 0, 0)
+		label.Size = UDim2.new(1, -58, 1, -10)
+		label.Position = UDim2.new(0, 42, 0, 5)
 		label.BackgroundTransparency = 1
 		label.TextColor3 = Color3.fromRGB(255, 255, 255)
 		label.TextScaled = true
-		label.Font = Enum.Font.GothamBold
+		label.FontFace = Font.new("rbxasset://fonts/families/Bangers.json", Enum.FontWeight.Bold, Enum.FontStyle.Italic)
+		label.TextStrokeTransparency = 1
+		label.TextWrapped = true
+		label.ZIndex = 4
 		label.Text = text
 		label.Parent = frame
 
-		tutorialFrame = frame
+		local textStroke = Instance.new("UIStroke")
+		textStroke.Name = "TextStroke"
+		textStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+		textStroke.Color = Color3.fromRGB(0, 0, 0)
+		textStroke.LineJoinMode = Enum.LineJoinMode.Round
+		textStroke.Thickness = 2
+		textStroke.Transparency = 0
+		textStroke.Parent = label
+
+		tutorialFrame = container
 		tutorialLabel = label
 	else
 		tutorialLabel.Text = text
@@ -238,6 +494,7 @@ local function closeTutorial()
 	tutorialActive = false
 	tutorialWaitingFor = nil
 	tutorialStepIndex = 0
+	fadeTutorialTeleportIn()
 	if tutorialGui then
 		tutorialGui:Destroy()
 		tutorialGui = nil
@@ -310,6 +567,8 @@ local function connectLandingDetection()
 		landingConnection = nil
 	end
 
+	if not humanoid then return end
+
 	landingConnection = humanoid.StateChanged:Connect(function(_, new)
 		if not combatActive then return end
 
@@ -324,6 +583,8 @@ local function connectLandingDetection()
 			and new ~= Enum.HumanoidStateType.GettingUp then return end
 
 		isAirborne = false
+
+		if not humrp then return end
 
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = { character }
@@ -344,7 +605,7 @@ connectLandingDetection()
 
 if CharacterSwapEvent then
 	CharacterSwapEvent.OnClientEvent:Connect(function(newChar)
-		warn("[CharacterSwap] Novo personagem recebido, atualizando refs...")
+		debugWarn("[CharacterSwap] Novo personagem recebido, atualizando refs...")
 		character = newChar
 		humanoid = newChar:WaitForChild("Humanoid", 5)
 		animator = humanoid and humanoid:WaitForChild("Animator", 5)
@@ -353,7 +614,7 @@ if CharacterSwapEvent then
 		characterVisuals = nil
 		isAirborne = false
 		connectLandingDetection()
-		warn("[CharacterSwap] Refs atualizadas com sucesso")
+		debugWarn("[CharacterSwap] Refs atualizadas com sucesso")
 	end)
 end
 
@@ -386,7 +647,7 @@ localPlayer.CharacterAdded:Connect(function(newCharacter)
 			Controls:Enable()
 			Camera.CameraType = Enum.CameraType.Custom
 			Camera.CameraSubject = humanoid
-			warn("[CharacterAdded] Controles restaurados com sucesso")
+			debugWarn("[CharacterAdded] Controles restaurados com sucesso")
 		end)
 	end
 end)
@@ -406,10 +667,21 @@ local function isGoingToEnemy()
 	return finalDot > 0
 end
 
-local function applyCharacterAnimations()
-	if not characterVisuals then
-		characterVisuals = CombatRequests:InvokeServer('GetCharacterStorageVisuals')
+local function fetchCharacterVisuals()
+	if characterVisuals then return characterVisuals end
+	local ok, result = pcall(function()
+		return CombatRequests:InvokeServer('GetCharacterStorageVisuals')
+	end)
+	if not ok then
+		warn("[CombatClient] GetCharacterStorageVisuals falhou:", result)
+		return nil
 	end
+	characterVisuals = result
+	return characterVisuals
+end
+
+local function applyCharacterAnimations()
+	fetchCharacterVisuals()
 	if not characterVisuals then warn("Character visuals não encontrado") return end
 	local animateTemplate = characterVisuals.Animations.AnimateScript
 	if not animateTemplate then warn("AnimateScript não existe") return end
@@ -421,9 +693,7 @@ local function applyCharacterAnimations()
 end
 
 local function playCrouchAnimation()
-	if not characterVisuals then
-		characterVisuals = CombatRequests:InvokeServer('GetCharacterStorageVisuals')
-	end
+	fetchCharacterVisuals()
 	if not characterVisuals then return end
 	local crouchAnim = characterVisuals.Animations.BasicInputs.CROUCH
 	if not crouchTrack then
@@ -433,14 +703,12 @@ local function playCrouchAnimation()
 	end
 	if not crouchTrack.IsPlaying then
 		crouchTrack:Play()
-		StateManager.POST(ENUM_FULL_STUNNED)
 	end
 end
 
 local function stopCrouchAnimation()
 	if crouchTrack and crouchTrack.IsPlaying then
 		crouchTrack:Stop()
-		StateManager.REMOVE(ENUM_FULL_STUNNED)
 	end
 end
 
@@ -451,22 +719,24 @@ end
 local function registerInput(action, phase)
 	if phase == "Began" then
 		onTutorialInput(action)
+		if currentActionStates[action] == false then
+			local abilityKey = ACTION_TO_ABILITY_KEY[action]
+			if abilityKey then
+				FightingHUD.PulseAbility(abilityKey)
+			end
+			pulseMobileButton(action)
+		end
 	end
 	CombatClient.RegisterInput(action, phase)
 end
 
 local function detectMovementInput()
-	if not characterVisuals then
-		characterVisuals = CombatRequests:InvokeServer('GetCharacterStorageVisuals')
-	end
+	fetchCharacterVisuals()
 	if not characterVisuals then return end
 
 	inputBeganConnection = UIS.InputBegan:Connect(function(input, gp)
 		if gp then return end
-		if StateCache[ENUM_FULL_STUNNED]
-			or StateCache[ENUM_BEING_ATTACKED]
-			or StateCache[ENUM_COUNTDOWN_STUN]
-		then return end
+		if shouldSuppressLocalInput() then return end
 		local inputAction = InputManager.GetActionByInput(input)
 		if not inputAction then return end
 		registerInput(inputAction, 'Began')
@@ -486,9 +756,7 @@ local function detectMovementInput()
 		elseif inputAction == "JUMP" then wantJump = false
 		elseif inputAction == "CROUCH" then stopCrouchAnimation()
 		end
-		if StateCache[ENUM_FULL_STUNNED]
-			or StateCache[ENUM_BEING_ATTACKED]
-			or StateCache[ENUM_COUNTDOWN_STUN] then return end
+		if shouldSuppressLocalInput() then return end
 		registerInput(inputAction, 'Ended')
 	end)
 end
@@ -501,7 +769,7 @@ local function startMovementLoop()
 	local buttonWasDown = {}
 	local fingerPosition = Vector2.new(-1, -1)
 
-	local touchTrackConnection = UIS.InputChanged:Connect(function(input)
+	touchTrackConnection = UIS.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch
 			or input.UserInputType == Enum.UserInputType.MouseMovement then
 			fingerPosition = Vector2.new(input.Position.X, input.Position.Y)
@@ -521,7 +789,7 @@ local function startMovementLoop()
 
 	local isTouching = false
 
-	local touchBeganConn = UIS.InputBegan:Connect(function(input)
+	touchBeganConnection = UIS.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch
 			or input.UserInputType == Enum.UserInputType.MouseButton1 then
 			fingerPosition = Vector2.new(input.Position.X, input.Position.Y)
@@ -529,7 +797,7 @@ local function startMovementLoop()
 		end
 	end)
 
-	local touchEndedConn = UIS.InputEnded:Connect(function(input)
+	touchEndedConnection = UIS.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch
 			or input.UserInputType == Enum.UserInputType.MouseButton1 then
 			isTouching = false
@@ -570,7 +838,10 @@ local function startMovementLoop()
 			humanoid:Move(Vector3.zero, false)
 		end
 
-		if wantJump and not hasJumped and humanoid.FloorMaterial ~= Enum.Material.Air then
+		if wantJump and not hasJumped and humanoid.FloorMaterial ~= Enum.Material.Air 
+				and not StateManager.GET(localPlayer)[StateEnum.STATES_ENUM.COMBAT_FROZEN_STUNNED] 
+				and not StateManager.GET(localPlayer)[StateEnum.STATES_ENUM.COMBAT_FULL_STUNNED] then
+				
 			hasJumped = true
 			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 		else
@@ -610,7 +881,7 @@ local function startMovementLoop()
 					elseif button.Name == "JUMP" then wantJump = false
 					elseif button.Name == "CROUCH" then stopCrouchAnimation()
 					end
-					if isFullStunned or isBeingAttacked or StateCache[ENUM_COUNTDOWN_STUN] then continue end
+					if shouldSuppressLocalInput() then continue end
 					registerInput(button.Name, 'Ended')
 				end
 			end
@@ -622,6 +893,9 @@ local function stopMovementLoop()
 	if inputBeganConnection then inputBeganConnection:Disconnect() end
 	if inputEndedConnection then inputEndedConnection:Disconnect() end
 	if moveConnection then moveConnection:Disconnect() moveConnection = nil end
+	if touchTrackConnection then touchTrackConnection:Disconnect() touchTrackConnection = nil end
+	if touchBeganConnection then touchBeganConnection:Disconnect() touchBeganConnection = nil end
+	if touchEndedConnection then touchEndedConnection:Disconnect() touchEndedConnection = nil end
 	moveDir = 0
 	mobileRight = false
 	mobileLeft = false
@@ -675,9 +949,7 @@ local function startGamepadLoop()
 		end
 
 		-- FIX: lê enums cacheados
-		local isStunned  = StateCache[ENUM_FULL_STUNNED]
-		local isAttacked = StateCache[ENUM_BEING_ATTACKED]
-		local isCountdown = StateCache[ENUM_COUNTDOWN_STUN]
+		local suppressInput = shouldSuppressLocalInput()
 
 		for _, inputObj in ipairs(state) do
 			local action = GAMEPAD_ACTION_MAP[inputObj.KeyCode]
@@ -686,13 +958,13 @@ local function startGamepadLoop()
 			local wasDown = gamepadButtonState[inputObj.KeyCode]
 			if isDown and not wasDown then
 				gamepadButtonState[inputObj.KeyCode] = true
-				if isStunned or isAttacked or isCountdown then continue end
+				if suppressInput then continue end
 				registerInput(action, "Began")
 				if action == "JUMP" then wantJump = true end
 			elseif not isDown and wasDown then
 				gamepadButtonState[inputObj.KeyCode] = false
 				if action == "JUMP" then wantJump = false end
-				if isStunned or isAttacked or isCountdown then continue end
+				if suppressInput then continue end
 				registerInput(action, "Ended")
 			end
 		end
@@ -786,10 +1058,10 @@ local function DisableMovement(isReturningToLobby: boolean?)
 
 	if isReturningToLobby then
 		pendingControlsRestore = true
-		warn("[DisableMovement] pendingControlsRestore = true")
+		debugWarn("[DisableMovement] pendingControlsRestore = true")
 	else
 		Controls:Enable()
-		warn("[DisableMovement] Controls:Enable() chamado")
+		debugWarn("[DisableMovement] Controls:Enable() chamado")
 	end
 end
 
@@ -810,7 +1082,7 @@ else
 end
 
 ToggleMovementRemote.OnClientEvent:Connect(function(action, args)
-	warn("COMBAT CLIENT: TOGGLE MOVEMENT, ACTION: ", action)
+	debugWarn("COMBAT CLIENT: TOGGLE MOVEMENT, ACTION: ", action)
 	if action == 'Enable' then
 		if moveConnection then stopMovementLoop() end
 		EnableMovement(args.Enemy)
@@ -938,6 +1210,12 @@ end
 ServerEvents.OnClientEvent:Connect(function(action, args)
 	if action == "ExecuteDash" then
 		executeDashClient(args)
+	elseif action == "ActionStatesUpdate" then
+		currentActionStates = args or {}
+		FightingHUD.SetActionStates(currentActionStates)
+		applyMobileActionStates()
+	elseif action == "StaminaInsufficient" then
+		FightingHUD.PulseStaminaDenied()
 	elseif action == 'DisableCrouchAnimation' then
 		stopCrouchAnimation()
 	elseif action == 'ApplyCameraZoom' then
@@ -948,5 +1226,7 @@ ServerEvents.OnClientEvent:Connect(function(action, args)
 		playerLockingEnabled = true
 	elseif action == "StartTutorial" then
 		task.spawn(runTutorial)
+	elseif action == "FinishTutorialTeleportFade" then
+		fadeTutorialTeleportOut()
 	end
 end)

@@ -27,8 +27,16 @@ local function isAlreadyRegistered(characters: {any}, charName: string): boolean
 end
 
 local function registerNewCharacter(plr, character)
-	local characters = PlayerState.Get(plr, "CharacterIndex")
-	if not characters then characters = {} end
+	local stored = PlayerState.Get(plr, "CharacterIndex")
+
+	-- Copia para tabela nova — evita mutar a referência viva do replica
+	local characters: {any} = {}
+	if stored then
+		for _, v in ipairs(stored) do
+			table.insert(characters, v)
+		end
+	end
+
 	if isAlreadyRegistered(characters, character.CharacterName) then return end
 	table.insert(characters, character)
 	PlayerState.Set(plr, "CharacterIndex", characters)

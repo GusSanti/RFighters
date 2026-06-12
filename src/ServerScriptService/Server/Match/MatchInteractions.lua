@@ -657,6 +657,7 @@ local function SetupCollisionGroups()
 end
 
 local function ApplyCollisionGroup(model: Model, groupName: string)
+	if not model then return end
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then part.CollisionGroup = groupName end
 	end
@@ -1210,11 +1211,34 @@ local function CreateArena(arenaId: number, MatchType: string, MatchArgs: { any 
 			local p2Ready    = false
 			local Timer      = 30
 			local ButtonConnection
+			local matchAborted = false
+
+			local function PresenceLost(): boolean
+				return (not p1) or (not p1.Parent) or (not p2) or (not p2.Parent)
+			end
+
+			-- Aborta o inicio da match 1v1 quando um participante sai durante a
+			-- selecao de personagem ou o swap. Garante FadeOut no jogador restante
+			-- (senao a tela fica presa no fade) e limpa a match no servidor.
+			local function AbortMatch()
+				if matchAborted then return end
+				matchAborted = true
+				if ButtonConnection then ButtonConnection:Disconnect(); ButtonConnection = nil end
+				for _, pp in ipairs({ p1, p2 }) do
+					if pp and pp.Parent then
+						MatchRemoteEvent:FireClient(pp, 'DisableCharacterSelection')
+						MatchRemoteEvent:FireClient(pp, 'DisableFightingFrame')
+						MatchRemoteEvent:FireClient(pp, 'EnableHUD')
+						MatchRemoteEvent:FireClient(pp, 'FadeOut')
+					end
+				end
+				MatchModule.Stop1v1Match(p1, p2)
+			end
 
 			local chrp1      = PlayerState.Get(p1, 'ActiveCharacter')
-			local charDatap1 = GetCharacterPoolData:Invoke(chrp1)
+			local charDatap1 = chrp1 and GetCharacterPoolData:Invoke(chrp1) or nil
 			local chrp2      = PlayerState.Get(p2, 'ActiveCharacter')
-			local charDatap2 = GetCharacterPoolData:Invoke(chrp2)
+			local charDatap2 = chrp2 and GetCharacterPoolData:Invoke(chrp2) or nil
 
 			MatchRemoteEvent:FireClient(p1, 'DisableHUD')
 			MatchRemoteEvent:FireClient(p2, 'DisableHUD')
@@ -1246,6 +1270,7 @@ local function CreateArena(arenaId: number, MatchType: string, MatchArgs: { any 
 
 			while not hasStarted do
 				task.wait(1)
+				if PresenceLost() then break end
 				Timer -= 1
 				if Timer <= 0 then hasStarted = true end
 				if p1Ready and p2Ready and Timer > 5 then Timer = 5 end
@@ -1255,6 +1280,8 @@ local function CreateArena(arenaId: number, MatchType: string, MatchArgs: { any 
 
 			if ButtonConnection then ButtonConnection:Disconnect(); ButtonConnection = nil end
 
+			if PresenceLost() then AbortMatch(); return end
+
 			MatchRemoteEvent:FireClient(p1, 'DisableCharacterSelection')
 			MatchRemoteEvent:FireClient(p2, 'DisableCharacterSelection')
 			MatchRemoteEvent:FireClient(p1, 'FadeIn')
@@ -1262,6 +1289,8 @@ local function CreateArena(arenaId: number, MatchType: string, MatchArgs: { any 
 
 			SwapCharacterForMatch(p1, function(chr1)
 				SwapCharacterForMatch(p2, function(chr2)
+					if PresenceLost() or not chr1 or not chr2 then AbortMatch(); return end
+
 					TeleportToArena(p1, newArena.Bounds, Vector3.new(-10, -30, 0))
 					TeleportToArena(p2, newArena.Bounds, Vector3.new( 10, -30, 0))
 

@@ -10,6 +10,7 @@ local DailyFrame    = MainUI:WaitForChild("DailyRewards") :: Frame
 local MainContainer = DailyFrame:WaitForChild("MAIN")
 local DailyRemote   = ReplicatedStorage:WaitForChild("Events"):WaitForChild("DailyRewardRemote") :: RemoteFunction
 local Effects       = require(script.Parent.Parent.Effects)
+local RewardNotificationModule = require(ReplicatedStorage.Modules.RewardNotificationModule)
 
 -- ══════════════════════════════════════════════════════
 --   IMAGENS — só mexa aqui para trocar os ícones
@@ -65,6 +66,10 @@ local SLOT_QUANTITY: { [number]: string } = {
 -- ══════════════════════════════════════════════════════
 
 local isClaiming = false
+
+local function ShowLockedDailyRewardNotification()
+	RewardNotificationModule.ShowLockedReward("THIS DAILY REWARD IS NOT YET AVAILABLE")
+end
 
 local function getSlotImage(slot: number, week: number): string
 	if slot == 7 then
@@ -155,6 +160,7 @@ function DailyRewards.UpdateUI(): boolean
 				end
 			else
 				-- Em cooldown: cadeado + ícone fantasma
+				btn.Active = true
 				if quantity and quantity.Text ~= "" then
 					quantity.Visible = true
 				end
@@ -166,6 +172,7 @@ function DailyRewards.UpdateUI(): boolean
 			end
 		else
 			-- Dias futuros: cadeado + ícone bem apagado
+			btn.Active = true
 			if quantity and quantity.Text ~= "" then
 				quantity.Visible = true
 			end
@@ -195,13 +202,18 @@ function DailyRewards.ButtonAction(button: GuiButton)
 	local weekStart   = (currentWeek - 1) * 7 + 1
 	local absoluteDay = weekStart + (slot - 1)
 
-	if absoluteDay ~= status.CurrentDay or not status.CanClaim then return end
+	if absoluteDay ~= status.CurrentDay or not status.CanClaim then
+		ShowLockedDailyRewardNotification()
+		return
+	end
 
 	isClaiming = true
 
 	local ok, _ = DailyRemote:InvokeServer("Claim")
 	if ok then
 		DailyRewards.UpdateUI()
+	else
+		ShowLockedDailyRewardNotification()
 	end
 
 	task.wait(1)
@@ -226,7 +238,7 @@ function DailyRewards.Init()
 			end
 		until success or attempts > 10
 	end)
-	
+
 	--Effects.ToggleUI(DailyFrame)
 end
 

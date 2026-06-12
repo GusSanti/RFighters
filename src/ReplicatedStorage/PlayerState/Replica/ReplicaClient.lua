@@ -280,14 +280,22 @@ function Replica.RequestData()
 	task.spawn(function()
 
 		RemoteRequestData:FireServer()
-		
+
+		local attempts = 0
+		local MAX_ATTEMPTS = 30
+
 		while task.wait(REQUEST_DATA_REPEAT) do
 			if Replica.IsReady == true then
 				break
 			end
+			attempts += 1
+			if attempts >= MAX_ATTEMPTS then
+				warn("[Replica] Dados não recebidos após", MAX_ATTEMPTS, "tentativas - desistindo")
+				break
+			end
 			RemoteRequestData:FireServer()
 		end
-		
+
 	end)
 	
 end

@@ -217,7 +217,7 @@ function module.UseSkill(char: Model)
 			sfx.Parent = char.Torso
 			sfx:Play()
 			Debris:AddItem(sfx, sfx.TimeLength)
-			
+
 			local ULTIMATE_DURATION = 13
 			MatchModule.PauseMatchTimer(player, ULTIMATE_DURATION)
 
@@ -308,15 +308,15 @@ function module.UseSkill(char: Model)
 			task.delay(2.9, function()
 				applyDamageOrMark(Damage)
 			end)
-			
+
 			task.delay(4, function()
 				applyDamageOrMark(Damage)
 			end)
-			
+
 			task.delay(9.07, function()
 				applyDamageOrMark(Damage)
 			end)
-			
+
 			task.delay(11.17, function()
 				applyDamageOrMark(Damage)
 			end)

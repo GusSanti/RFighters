@@ -208,6 +208,19 @@ function module.UseSkill(char: Model)
 	end)
 	
 	SlamTrack:GetMarkerReachedSignal("Slam"):Connect(function()
+		-- Freeze the animation at the slam pose until the character reaches the
+		-- ground, so the hit connects when the slam visually impacts (timeout 2s).
+		if humanoid.FloorMaterial == Enum.Material.Air then
+			SlamTrack:AdjustSpeed(0)
+			local waitStart = os.clock()
+			while humanoid.FloorMaterial == Enum.Material.Air do
+				if not state.barrageActive then return end
+				if os.clock() - waitStart > 2 then break end
+				RunService.Heartbeat:Wait()
+			end
+			SlamTrack:AdjustSpeed(1)
+		end
+
 		Utilities.Particle_Setup({Holder = SlamFX, Type = "Emit"})
 		doHit(mainHitbox, char, humRP)
 		

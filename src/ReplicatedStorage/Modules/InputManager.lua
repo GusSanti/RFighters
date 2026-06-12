@@ -5,8 +5,18 @@ local UIS = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 
 local PlayerState = require(game.ReplicatedStorage.PlayerState.PlayerStateClient)
+local DefaultData = require(game.ReplicatedStorage.PlayerState.DefaultData)
 local Player = Players.LocalPlayer
-local InputsConfig = PlayerState.Get("Inputs")
+-- Start from defaults so input works instantly at boot; refreshed from PlayerState
+-- once data replicates (see refresh task at the bottom). Never blocks the boot thread.
+local InputsConfig = DefaultData.Inputs
+local DEBUG_INPUTS = false
+
+local function debugWarn(...)
+	if DEBUG_INPUTS then
+		warn(...)
+	end
+end
 
 -- Estados internos
 local isDown = {}
@@ -31,26 +41,36 @@ local function safeEnum(enumType, keyName)
 	return nil
 end
 
-print(InputsConfig)
+local function rebuildCaches(config)
+	if typeof(config) ~= "table" then return end
 
-for action, keys in pairs(InputsConfig) do
-	actionToEnums[action] = {}
-	warn(action)
+	InputsConfig = config
+	table.clear(actionToEnums)
+	table.clear(enumToActions)
 
-	for _, keyName in ipairs(keys) do
-		local enumItem = safeEnum(Enum.KeyCode, keyName) 
-			or safeEnum(Enum.UserInputType, keyName)
+	debugWarn(config)
 
-		if enumItem then
-			table.insert(actionToEnums[action], enumItem)
+	for action, keys in pairs(config) do
+		actionToEnums[action] = {}
+		debugWarn(action)
 
-			enumToActions[enumItem] = enumToActions[enumItem] or {}
-			table.insert(enumToActions[enumItem], action)
-		else
-			warn("[InputManager] Key inválida no config:", keyName)
+		for _, keyName in ipairs(keys) do
+			local enumItem = safeEnum(Enum.KeyCode, keyName)
+				or safeEnum(Enum.UserInputType, keyName)
+
+			if enumItem then
+				table.insert(actionToEnums[action], enumItem)
+
+				enumToActions[enumItem] = enumToActions[enumItem] or {}
+				table.insert(enumToActions[enumItem], action)
+			else
+				warn("[InputManager] Key inválida no config:", keyName)
+			end
 		end
 	end
 end
+
+rebuildCaches(InputsConfig)
 
 -- ================= Utils =================
 
@@ -150,5 +170,22 @@ function InputManager.GetInputSnapshot()
 end
 
 InputManager.Actions = table.clone(InputsConfig)
+
+-- Refresh from replicated player data once it is ready (non-blocking).
+-- Boot never waits on this; defaults are used until/if real data arrives.
+task.spawn(function()
+	local playerInputs = PlayerState.Get("Inputs")
+	if typeof(playerInputs) == "table" then
+		rebuildCaches(playerInputs)
+		InputManager.Actions = table.clone(InputsConfig)
+	end
+end)
+
+PlayerState.OnChanged("Inputs", function(newValue)
+	if typeof(newValue) == "table" then
+		rebuildCaches(newValue)
+		InputManager.Actions = table.clone(InputsConfig)
+	end
+end)
 
 return InputManager

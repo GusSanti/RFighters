@@ -1,16 +1,34 @@
 local MatchCameraConnectionRemote = game.ReplicatedStorage.Events.Match.MatchCameraConnection
 local MatchMapsRemoteEvent = game.ReplicatedStorage.Events.Match.MatchMapsRemoteEvent
 local MatchUIInteractions = game.ReplicatedStorage.Events.Match.MatchUIInteractions
-local FightTextUI = game.Players.LocalPlayer:WaitForChild('PlayerGui'):WaitForChild('UI'):WaitForChild('CombatHUD').FIGHTText
-local RoundTextUI = game.Players.LocalPlayer:WaitForChild('PlayerGui'):WaitForChild('UI'):WaitForChild('CombatHUD').ROUNDtext
-local KOTextUI = game.Players.LocalPlayer:WaitForChild('PlayerGui'):WaitForChild('UI'):WaitForChild('CombatHUD').KOtext
+local Players = game:GetService("Players")
+local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+local MainUI = playerGui:WaitForChild("UI", 60)
+if not MainUI then
+	warn("[MatchClient] PlayerGui.UI not found; match UI disabled")
+	return
+end
+
+local CombatHUD = MainUI:WaitForChild("CombatHUD", 15)
+if not CombatHUD then
+	warn("[MatchClient] UI.CombatHUD not found; match UI disabled")
+	return
+end
+
+local FightTextUI = CombatHUD:WaitForChild("FIGHTText", 10)
+local RoundTextUI = CombatHUD:WaitForChild("ROUNDtext", 10)
+local KOTextUI = CombatHUD:WaitForChild("KOtext", 10)
+if not FightTextUI or not RoundTextUI or not KOTextUI then
+	warn("[MatchClient] CombatHUD text labels missing; match UI disabled")
+	return
+end
 local MiddleBeep = game.ReplicatedStorage.MatchSystem.Storage.Sounds.MiddleBeep
 local FinalBeep = game.ReplicatedStorage.MatchSystem.Storage.Sounds.FinalBeep
 local RoundBeep = game.ReplicatedStorage.MatchSystem.Storage.Sounds.RoundSound
 local KOSound = game.ReplicatedStorage.MatchSystem.Storage.Sounds.KO
 
-local RunService = game:GetService('RunService')
-local TweenService = game:GetService('TweenService')
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local SpectateEnabled = false
 local HostEnabled = false
 local lastSyncTime = 0

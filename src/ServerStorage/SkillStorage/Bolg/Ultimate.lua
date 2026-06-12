@@ -217,7 +217,7 @@ function module.UseSkill(char: Model)
 			sfx.Parent = char.Torso
 			sfx:Play()
 			Debris:AddItem(sfx, sfx.TimeLength)
-			
+
 			local ULTIMATE_DURATION = 13
 			MatchModule.PauseMatchTimer(player, ULTIMATE_DURATION)
 
@@ -258,7 +258,7 @@ function module.UseSkill(char: Model)
 			local jointWeld = weld(humRP, enemyHumRP, CFrame.new(0, 0, 0), humRP)
 
 			Assets.Events.Replicate:FireAllClients("BolgUltimate", {Char = char, Enemy = enemyCharacter})
-			
+
 			local hasDied = false
 			local shouldKillAfter = false
 			local _diedEvent 

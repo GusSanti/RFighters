@@ -135,6 +135,34 @@ module.Achievements = {
 			Completed = false,
 		}
 	},
+	
+	Dojo = {
+		[1] = {
+			Label = 'Kill 40 Players In 1v1 Mode',
+			Triggers = {TriggerEnums.EnumList.CombatKillPlayer1v1},
+			RequiredTriggers = 40,
+			Reward = {Type = 'PlayerStateIncrement', StateKey = 'Crystals', IncrementValue = 250},
+			CurrentTriggers = 0,
+			Completed = false,
+		},
+		[2] = {
+			Label = 'Win 35 Rounds In 1v1 And 2v2 Mode',
+			Triggers = {TriggerEnums.EnumList.MatchWinRound1v1, TriggerEnums.EnumList.MatchWinRound2v2},
+			RequiredTriggers = 35,
+			Reward = {Type = 'PlayerStateIncrement', StateKey = 'Diamonds', IncrementValue = 150},
+			CurrentTriggers = 0,
+			Completed = false,
+		},
+		[3] = {
+			Label = 'Use Your Ultimate Attack 75 Times',
+			Triggers = {TriggerEnums.EnumList.CombatUsedUlt},
+			RequiredTriggers = 75,
+			Reward = {Type = 'PlayerStateIncrement', StateKey = 'Diamonds', IncrementValue = 220},
+			CurrentTriggers = 0,
+			Completed = false,
+		}
+	},
+
 }
 
 return module

@@ -79,18 +79,13 @@ function module.ResetCharactersToFightPositions(
 	module.ClearTemporaryMovementControllers(enemyCharacter)
 	module.ZeroCharacterVelocity(character)
 	module.ZeroCharacterVelocity(enemyCharacter)
-
+	
+	character:PivotTo(characterCFrame)
+	task.wait()
 	if jointWeld and jointWeld.Parent then
 		jointWeld:Destroy()
 	end
-
-	character:PivotTo(characterCFrame)
-	enemyCharacter:PivotTo(enemyCFrame)
-	task.wait(0.15)
-	character:PivotTo(characterCFrame)
-	enemyCharacter:PivotTo(enemyCFrame)
-	task.wait(0.1)
-
+	
 	module.ClearTemporaryMovementControllers(character)
 	module.ClearTemporaryMovementControllers(enemyCharacter)
 	module.ZeroCharacterVelocity(character)

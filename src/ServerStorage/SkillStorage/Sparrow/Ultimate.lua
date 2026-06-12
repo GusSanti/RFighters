@@ -211,12 +211,12 @@ function module.UseSkill(char: Model)
 			local Ability3EnemyAnim  = Animations:FindFirstChild("Ability3Enemy")
 			local Ability3EnemyTrack = enemyAnimator:LoadAnimation(Ability3EnemyAnim)
 			Ability3EnemyTrack:Play()
-
-			--[[local sfx = Sounds:FindFirstChild("Ability3Sound"):Clone()
+			
+			local sfx = Sounds:FindFirstChild("Ability3Sound"):Clone()
 			sfx.Parent = char.Torso
 			sfx:Play()
-			Debris:AddItem(sfx, sfx.TimeLength)]]
-			
+			Debris:AddItem(sfx, sfx.TimeLength)
+
 			local ULTIMATE_DURATION = 13
 			MatchModule.PauseMatchTimer(player, ULTIMATE_DURATION)
 

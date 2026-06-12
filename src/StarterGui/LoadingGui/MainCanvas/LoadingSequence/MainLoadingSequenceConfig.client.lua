@@ -67,7 +67,7 @@ local function Load(fld)
 	
 	HUD.Interactable = true
 
-	wait(1)
+	task.wait(1)
 
 	script.Parent.Visible = false
 	script.Parent.Parent.UIGradient:Destroy()

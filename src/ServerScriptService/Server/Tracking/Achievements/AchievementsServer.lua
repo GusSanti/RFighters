@@ -7,35 +7,38 @@ local ClaimAchievement = game.ReplicatedStorage.QuestAchievementsSystem.Events.C
 local SendTriggerAchievementsEvent = game.ReplicatedStorage.QuestAchievementsSystem.Events.SendTriggerAchievements
 
 local ModelToNameTable = {
-	Map_Cave = 'Cave',
+	--Map_Cave = 'Cave',
 	Map_Dojo = 'Dojo',
 	Map_Palace = 'Palace',
-	Map_Portal = 'Portal',
-	Map_Skyruins = 'Skyruins',
-	Map_Wasteland = 'Wasteland'
+	--Map_Portal = 'Portal',
+	--Map_Skyruins = 'Skyruins',
+	--Map_Wasteland = 'Wasteland'
 }
 
-for _, player in game.Players:GetChildren() do
-	local PlayerData = PlayerState.Get(player, 'Achievements')
-	if not PlayerData then 
-		warn('[ACHIEVEMENTS] NO DATA FOUND FOR PLAYER')
-		PlayerState.Set(player, 'Achievements', AchievementsList.Achievements)
+-- CORREÇÃO 1: Deep clone para não compartilhar a mesma tabela entre players
+local function DeepClone(t)
+	local copy = {}
+	for k, v in pairs(t) do
+		copy[k] = type(v) == "table" and DeepClone(v) or v
 	end
+	return copy
 end
 
+-- CORREÇÃO 2: Loop duplicado removido (havia dois loops idênticos antes do PlayerAdded)
 game.Players.PlayerAdded:Connect(function(player)
 	local PlayerData = PlayerState.Get(player, 'Achievements')
-	if not PlayerData then 
+	if not PlayerData then
 		warn('[ACHIEVEMENTS] NO DATA FOUND FOR PLAYER')
-		PlayerState.Set(player, 'Achievements', AchievementsList.Achievements)
+		PlayerState.Set(player, 'Achievements', DeepClone(AchievementsList.Achievements))
 	end
 end)
 
+-- Inicializa players já conectados (para o caso do script carregar depois)
 for _, player in game.Players:GetChildren() do
 	local PlayerData = PlayerState.Get(player, 'Achievements')
-	if not PlayerData then 
+	if not PlayerData then
 		warn('[ACHIEVEMENTS] NO DATA FOUND FOR PLAYER')
-		PlayerState.Set(player, 'Achievements', AchievementsList.Achievements)
+		PlayerState.Set(player, 'Achievements', DeepClone(AchievementsList.Achievements))
 	end
 end
 
@@ -51,7 +54,6 @@ SendTriggerAchievementsEvent.Event:Connect(function(player, TriggerEnum, Trigger
 	for index, achievementInfo in ipairs(PlayerAchievements[map]) do
 		if table.find(achievementInfo.Triggers, TriggerEnum) then
 			warn("[ACHIEVEMENTS] FOUND TRIGGER IN ACHIEVEMENT INFO")
-			--achievementInfo.CurrentTriggers += 1
 			PlayerAchievements[map][index].CurrentTriggers += 1
 		end
 	end
@@ -74,8 +76,11 @@ ClaimAchievement.OnServerEvent:Connect(function(plr, taskKey, selectedMap)
 	end
 
 	-- Valida o mapa usando a ModelToNameTable
-	local map = ModelToNameTable[selectedMap]
-	if not map then
+	local validMaps = {}
+	for _, v in pairs(ModelToNameTable) do validMaps[v] = true end
+
+	local map = selectedMap
+	if not validMaps[map] then
 		warn("[ACHIEVEMENTS] Mapa inválido:", selectedMap, "| Player:", plr.Name)
 		return
 	end

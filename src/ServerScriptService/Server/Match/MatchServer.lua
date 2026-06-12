@@ -543,8 +543,14 @@ local function StartOffline1v1Match(Player, Map)
 end
 
 local function Start1v1Match(player1, player2, Map)
+	if not player1 or not player1.Parent then return end
+	-- Oponente saiu entre aceitar o convite e o host iniciar a luta: aborta e avisa
+	-- o host em vez de iniciar uma match com um participante ausente.
+	if not player2 or not player2.Parent or FindPlayer(player2.Name) ~= 'FreePlayer' then
+		NotificationModule.SendMessageToClient(player1, "Opponent is no longer available.")
+		return
+	end
 	if FindPlayer(player1.Name) ~= 'FreePlayer' then return end
-	if FindPlayer(player2.Name) ~= 'FreePlayer' then return end
 	local ArenaID  = MatchInteractionsManager.StartMatch('Online1v1', { Player1 = player1, Player2 = player2, Map = Map })
 	local newMatch = CreateMatchPlayers(player1, player2, MatchTime, ArenaID)
 	table.insert(InMatchPlayers, newMatch)
@@ -662,6 +668,11 @@ local function Stop1v1Match(player1, player2)
 	for i, match in ipairs(InMatchPlayers) do
 		if (match.Player1 == player1 and match.Player2 == player2)
 			or (match.Player1 == player2 and match.Player2 == player1) then
+			-- Idempotencia: Stop1v1Match pode ser chamado em paralelo (PlayerRemoving
+			-- + abort da match no inicio). Stop1v1Match (MatchInteractions) cede com
+			-- task.wait antes do table.remove, abrindo janela para duplo swap-back.
+			if match.Stopping then return false end
+			match.Stopping = true
 			warn('STOP 1v1 MATCH ACCEPTED')
 			UnindexMatchPlayers(match)
 			MatchInteractionsManager.Stop1v1Match(player1, player2, match.ArenaID)
@@ -977,6 +988,10 @@ game.Players.PlayerRemoving:Connect(function(plr)
 				local opponent = (match.Player1 == plr) and match.Player2 or match.Player1
 				Stop1v1Match(match.Player1, match.Player2)
 				if opponent and opponent.Parent then
+					-- Garante saida do fade e da selecao de personagem se o oponente
+					-- saiu durante o inicio da luta (senao a tela trava no fade).
+					MatchRemoteEvent:FireClient(opponent, 'DisableCharacterSelection')
+					MatchRemoteEvent:FireClient(opponent, 'FadeOut')
 					NotificationModule.SendMessageToClient(opponent, plr.Name .. " left. The match has been cancelled.")
 				end
 				break

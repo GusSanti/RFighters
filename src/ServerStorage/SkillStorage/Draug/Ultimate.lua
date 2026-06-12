@@ -219,7 +219,7 @@ function module.UseSkill(char: Model)
 			local Ability3EnemyAnim  = Animations:FindFirstChild("Ability3Enemy")
 			local Ability3EnemyTrack = enemyAnimator:LoadAnimation(Ability3EnemyAnim)
 			Ability3EnemyTrack:Play()
-			
+
 			local ULTIMATE_DURATION = 13
 			MatchModule.PauseMatchTimer(player, ULTIMATE_DURATION)
 
@@ -258,7 +258,7 @@ function module.UseSkill(char: Model)
 			if botLock then botLock.Value = false end
 
 			local jointWeld = weld(humRP, enemyHumRP, CFrame.new(0, 0, 0), humRP)
-			
+
 			Assets.Events.Replicate:FireAllClients("DraugUltimate", {Char = char, Enemy = enemyCharacter})
 
 			local hasDied        = false

@@ -24,6 +24,7 @@ local ASSET_CLAIM_GRAY = "rbxassetid://114921624481011"
 local ASSET_CRYSTALS = "rbxassetid://124856269825747"
 local ASSET_DIAMONDS = "rbxassetid://91460785817697"
 local SECONDS_PER_DAY = 86400
+local RewardNotificationModule = require(game.ReplicatedStorage.Modules.RewardNotificationModule)
 
 local currentTab = nil
 local questsChangedConnection = nil
@@ -122,6 +123,25 @@ local function CanClaimQuest(questData)
 	local completed = IsQuestCompleted(questData)
 	local claimed = questData.Claimed == true
 	return completed and not claimed
+end
+
+local function ShowLockedQuestRewardNotification()
+	RewardNotificationModule.ShowLockedReward("COMPLETE THIS MISSION BEFORE RECEIVING THE REWARD")
+end
+
+local function UpdateClaimButtonText(claimButton, questData, canClaim)
+	local textLabel = claimButton:FindFirstChild("TextLabel")
+	if not textLabel then
+		return
+	end
+
+	if questData.Claimed == true then
+		textLabel.Text = "Claimed"
+	elseif canClaim then
+		textLabel.Text = "Claim"
+	else
+		textLabel.Text = "Locked"
+	end
 end
 
 local function GetQuestByLocation(quests, questType, questIndex)
@@ -261,8 +281,9 @@ local function PopulateQuests(questType)
 		if claimButton and claimButton:IsA("GuiButton") then
 			local canClaim = CanClaimQuest(questData)
 			claimButton.Image = canClaim and ASSET_CLAIM_NORMAL or ASSET_CLAIM_GRAY
-			claimButton.Active = canClaim
+			claimButton.Active = questData.Claimed ~= true
 			claimButton.AutoButtonColor = canClaim
+			UpdateClaimButtonText(claimButton, questData, canClaim)
 
 			claimButton.MouseButton1Click:Connect(function()
 				Achievements.ButtonAction(claimButton, "ClaimQuest")
@@ -371,6 +392,10 @@ function Achievements.ButtonAction(button: GuiButton, action: string)
 	end
 
 	if not CanClaimQuest(questData) then
+		if questData.Claimed ~= true then
+			ShowLockedQuestRewardNotification()
+		end
+
 		return
 	end
 
@@ -379,6 +404,7 @@ function Achievements.ButtonAction(button: GuiButton, action: string)
 	button.Image = ASSET_CLAIM_GRAY
 	button.Active = false
 	button.AutoButtonColor = false
+	UpdateClaimButtonText(button, { Claimed = true }, false)
 
 	task.delay(0.25, function()
 		RefreshCurrentTab()
