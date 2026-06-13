@@ -40,6 +40,7 @@ local PATHS: {Frame} = {
 	Codes = wfc("Codes"),
 	GiftSlot = wfc("GiftSlot"),
 	DailyRewards = wfc("DailyRewards"),
+	Commands = wfc("Commands"),
 	FightingFrame = wfc("FightingFrame"),
 	HUD = wfc("HUD"),
 	InviteRewards = wfc("InviteRewards"),

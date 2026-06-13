@@ -2,15 +2,48 @@ local FightingHUD = {}
 
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 
 local FightingFrame   -- injetado via Init
 local ShakeConnections = {}
 local cooldownTimers = {}
 local Player1UIHealthBarConnection = nil
 local Player2UIHealthBarConnection = nil
+local BindsVisibilityConnection = nil
 
 local COOLDOWN_COLOR = Color3.fromRGB(255, 115, 34)
 local DEFAULT_COLOR  = Color3.fromRGB(255, 255, 255)
+
+local function isGamepadInput(inputType)
+	return string.sub(inputType.Name, 1, 7) == "Gamepad"
+end
+
+local function shouldShowDesktopBinds()
+	if GuiService:IsTenFootInterface() then
+		return false
+	end
+
+	if not UserInputService.KeyboardEnabled or not UserInputService.MouseEnabled then
+		return false
+	end
+
+	local lastInputType = UserInputService:GetLastInputType()
+	if lastInputType == Enum.UserInputType.Touch or isGamepadInput(lastInputType) then
+		return false
+	end
+
+	return true
+end
+
+local function updateBindsFrameVisibility()
+	if not FightingFrame then return end
+
+	local bindsFrame = FightingFrame:FindFirstChild("Binds")
+	if not bindsFrame then return end
+
+	bindsFrame.Visible = shouldShowDesktopBinds()
+end
 
 -- ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -59,6 +92,15 @@ end
 
 function FightingHUD.Init(fightingFrame)
 	FightingFrame = fightingFrame
+	updateBindsFrameVisibility()
+
+	if BindsVisibilityConnection then
+		BindsVisibilityConnection:Disconnect()
+	end
+
+	BindsVisibilityConnection = UserInputService.LastInputTypeChanged:Connect(function()
+		updateBindsFrameVisibility()
+	end)
 end
 
 function FightingHUD.ResetAll()
