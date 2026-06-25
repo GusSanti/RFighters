@@ -28,6 +28,20 @@ local ProgressModule    = require(script.Parent.ProgressModule)
 
 -- ── Constantes ───────────────────────────────────────────────
 local VISIBLE_HITBOXES = false
+local GRAB_CATCH_SOUND_DELAY = 0
+local GRAB_GROUND_IMPACT_DELAY = 0.05
+
+local GrabCatchSound = Instance.new("Sound")
+GrabCatchSound.Name = "GrabCatchSoundTemplate"
+GrabCatchSound.SoundId = "rbxassetid://131051744133255"
+GrabCatchSound.Volume = 1
+GrabCatchSound.PlaybackSpeed = 1
+
+local GrabGroundImpactSound = Instance.new("Sound")
+GrabGroundImpactSound.Name = "GrabGroundImpactTemplate"
+GrabGroundImpactSound.SoundId = "rbxassetid://118068869072073"
+GrabGroundImpactSound.Volume = 1
+GrabGroundImpactSound.PlaybackSpeed = 1
 
 -- ── Storage (compartilhado com CombatManager via setter) ──────
 local POST_HIT_STORAGE  = nil   -- injetado via Init
@@ -37,6 +51,30 @@ local HIT_CONFIRM_STORAGE = nil -- injetado via Init
 function HitboxModule.Init(postHitStorage, hitConfirmStorage)
 	POST_HIT_STORAGE    = postHitStorage
 	HIT_CONFIRM_STORAGE = hitConfirmStorage
+end
+
+local function PlayDelayedGrabSound(character, soundTemplate, delayTime)
+	task.delay(delayTime, function()
+		if not (character and character.Parent) then return end
+
+		local impactPart = character:FindFirstChild("Head")
+			or character:FindFirstChild("HumanoidRootPart")
+			or character:FindFirstChild("Torso")
+		if not impactPart then return end
+
+		EffectsHelper.PlaySound({
+			Sound = soundTemplate,
+			TargetCharacterBodyPart = impactPart.Name,
+		}, character)
+	end)
+end
+
+local function PlayGrabCatchSound(character)
+	PlayDelayedGrabSound(character, GrabCatchSound, GRAB_CATCH_SOUND_DELAY)
+end
+
+local function PlayGrabGroundImpact(character)
+	PlayDelayedGrabSound(character, GrabGroundImpactSound, GRAB_GROUND_IMPACT_DELAY)
 end
 
 -- ── Helpers ───────────────────────────────────────────────────
@@ -272,6 +310,8 @@ local function GrabHitDetection(Hitbox, HitboxTable, AttackerCharacter)
 
 		task.delay(HitboxTable.GrabInfo.DamageTime, function()
 			DamageModule.TakeDamage(GrabbedCharacter, HitboxTable.Damage, nil, AttackerCharacter)
+			PlayGrabCatchSound(GrabbedCharacter)
+			PlayGrabGroundImpact(GrabbedCharacter)
 			CombatReplicator.CameraShake({
 				magnitude = 65, position = GrabbedCharacter.HumanoidRootPart.Position,
 				radius = 5, duration = 0.2, fadeIn = 0.1, fadeOut = 0.3,

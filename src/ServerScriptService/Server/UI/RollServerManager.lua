@@ -3,6 +3,7 @@ local RollServer = {}
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local PlayerState       = require(ReplicatedStorage.PlayerState.PlayerStateServer)
 local CharacterRegistry = require(ReplicatedStorage:WaitForChild("CharacterInfo"):WaitForChild("CharacterInfoModule"))
@@ -232,6 +233,43 @@ end
 
 local cooldowns: { [number]: number } = {}
 
+local function unlockAllCharactersForPlayer(player: Player)
+	if not PlayerState.IsPlayerDataReady(player) then
+		warn(`[RollServer] Data not ready to unlock characters for {player.Name}`)
+		return false
+	end
+
+	local allIndexEntries = {}
+	local allSlots = {}
+
+	for i, entry in ipairs(characterPool) do
+		allIndexEntries[i] = {
+			CharacterName = entry.name,
+			CharacterDescription = entry.description,
+			Skills = entry.Skills,
+		}
+
+		allSlots[i] = {
+			id = entry.id,
+			name = entry.name,
+			rarity = entry.rarity,
+			description = entry.description,
+			AnimId = entry.AnimId,
+		}
+	end
+
+	if #characterPool > 0 then
+		PlayerState.Set(player, "SlotCount", #characterPool)
+		PlayerState.Set(player, "Slots", allSlots)
+		PlayerState.Set(player, "CharacterIndex", allIndexEntries)
+		PlayerState.Set(player, "EquippedSlot", 1)
+		PlayerState.Set(player, "ActiveCharacter", characterPool[1].id)
+	end
+
+	print(`[RollServer] {player.Name} unlocked all active characters for testing ({#characterPool} total)`)
+	return true
+end
+
 local function isOnCooldown(userId: number): boolean
 	local last = cooldowns[userId]
 	return last ~= nil and (tick() - last) < CONFIG.ROLL_COOLDOWN
@@ -326,6 +364,30 @@ local function handleRollRequest(player: Player): { success: boolean, character:
 end
 
 local function handleAdminCommand(player: Player, message: string)
+	if RunService:IsStudio() then
+		local studioTarget = message:match("^/unlockallchars%s*(%S*)$")
+		if studioTarget ~= nil then
+			local targetPlayer = player
+
+			if studioTarget ~= "" then
+				for _, p in ipairs(Players:GetPlayers()) do
+					if p.Name:lower() == studioTarget:lower() then
+						targetPlayer = p
+						break
+					end
+				end
+
+				if not targetPlayer or targetPlayer.Name:lower() ~= studioTarget:lower() then
+					warn(`[RollServer] Studio unlock target "{studioTarget}" not found`)
+					return
+				end
+			end
+
+			unlockAllCharactersForPlayer(targetPlayer)
+			return
+		end
+	end
+
 	if not ADMINS[player.Name:lower()] then return end
 
 	local targetName, amount = message:match("^/giverolls%s+(%S+)%s+(%d+)$")
